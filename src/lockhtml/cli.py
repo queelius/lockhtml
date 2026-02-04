@@ -12,14 +12,15 @@ from .config import (
     create_default_config,
     find_config_file,
     load_config,
+    update_config_users,
 )
 from .crypto import LockhtmlError
 from .parser import (
     has_lockhtml_elements,
+    mark_body,
+    mark_elements,
     process_file,
     sync_html_keys,
-    wrap_body_for_encryption,
-    wrap_elements_for_encryption,
 )
 
 
@@ -34,11 +35,119 @@ def main():
     \b
     Quick start:
       lockhtml config init          # Create .lockhtml.yaml
-      lockhtml encrypt index.html   # Encrypt HTML file
-      lockhtml decrypt encrypted/   # Restore original
-      lockhtml sync encrypted/ -r   # Re-wrap keys for current users
+      lockhtml mark index.html      # Tag elements for encryption
+      lockhtml lock index.html      # Encrypt HTML file
+      lockhtml unlock _locked/      # Restore original
+      lockhtml sync _locked/ -r     # Re-wrap keys for current users
+      lockhtml wrap file paper.pdf  # Encrypt arbitrary file
     """
     pass
+
+
+@main.command()
+@click.argument("paths", nargs=-1, type=click.Path(exists=True))
+@click.option("-r", "--recursive", is_flag=True, help="Process directories recursively")
+@click.option(
+    "-s",
+    "--selector",
+    "selectors",
+    multiple=True,
+    help="CSS selector(s) to mark (can specify multiple)",
+)
+@click.option(
+    "--hint",
+    "selector_hint",
+    help="Password hint for marked elements",
+)
+@click.option(
+    "--remember",
+    "selector_remember",
+    type=click.Choice(["none", "session", "local", "ask"]),
+    help="Remember mode for marked elements",
+)
+@click.option(
+    "--title",
+    "selector_title",
+    help="Title for encrypted region (replaces default 'Protected Content')",
+)
+def mark(
+    paths,
+    recursive,
+    selectors,
+    selector_hint,
+    selector_remember,
+    selector_title,
+):
+    """Tag elements for encryption (in-place).
+
+    With --selector, wraps matching elements in <lockhtml-encrypt> tags.
+    Without --selector, wraps all <body> innerHTML in a single <lockhtml-encrypt>.
+
+    Files are modified in-place. Content stays readable plaintext until locked.
+
+    \b
+    Examples:
+      lockhtml mark index.html -s "#secret"
+      lockhtml mark site/ -r -s ".private"
+      lockhtml mark page.html --hint "Contact admin" --title "Members Only"
+      lockhtml mark page.html  # wraps entire body
+    """
+    if not paths:
+        raise click.UsageError("No files or directories specified")
+
+    # Collect files to process
+    files = _collect_files(paths, recursive)
+
+    if not files:
+        click.echo("No HTML files found")
+        return
+
+    processed = 0
+    skipped = 0
+
+    for input_path in files:
+        try:
+            content = input_path.read_text(encoding="utf-8")
+        except OSError as e:
+            click.echo(f"Warning: Cannot read {input_path}: {e}", err=True)
+            continue
+
+        # Skip files already having lockhtml-encrypt elements (unless using selectors)
+        if not selectors and has_lockhtml_elements(content):
+            skipped += 1
+            continue
+
+        if selectors:
+            modified = mark_elements(
+                content,
+                list(selectors),
+                hint=selector_hint,
+                remember=selector_remember,
+                title=selector_title,
+            )
+        else:
+            modified = mark_body(
+                content,
+                hint=selector_hint,
+                remember=selector_remember,
+                title=selector_title,
+            )
+
+        if modified == content or not has_lockhtml_elements(modified):
+            skipped += 1
+            continue
+
+        rel_path = _relative_path(input_path)
+
+        # Write in-place
+        try:
+            input_path.write_text(modified, encoding="utf-8")
+            click.echo(f"Marked: {rel_path}")
+            processed += 1
+        except OSError as e:
+            click.echo(f"Error writing {rel_path}: {e}", err=True)
+
+    click.echo(f"\n{processed} file(s) marked, {skipped} skipped")
 
 
 @main.command()
@@ -49,7 +158,7 @@ def main():
     "--directory",
     "output_dir",
     type=click.Path(),
-    help="Output directory (default: encrypted/)",
+    help="Output directory (default: _locked/)",
 )
 @click.option("-p", "--password", help="Encryption password (or use config/env)")
 @click.option(
@@ -89,7 +198,7 @@ def main():
     "selector_title",
     help="Title for encrypted region (replaces default 'Protected Content')",
 )
-def encrypt(
+def lock(
     paths,
     recursive,
     output_dir,
@@ -102,21 +211,21 @@ def encrypt(
     selector_remember,
     selector_title,
 ):
-    """Encrypt HTML files with <lockhtml-encrypt> regions.
+    """Lock (encrypt) HTML files with <lockhtml-encrypt> regions.
 
-    Without --selector, wraps all body content in a single encrypted region.
-    With --selector, only wraps elements matching the CSS selector(s).
+    Without --selector, auto-wraps body content if no <lockhtml-encrypt> elements exist.
+    With --selector, wraps matching elements then encrypts.
 
     \b
     Examples:
-      lockhtml encrypt index.html
-      lockhtml encrypt site/ -r
-      lockhtml encrypt site/ -r -d encrypted/
-      lockhtml encrypt file.html -p "password"
-      lockhtml encrypt site/ --css custom.css
-      lockhtml encrypt file.html --selector "#secret"
-      lockhtml encrypt file.html -s "#main" -s ".private" --hint "Password hint"
-      lockhtml encrypt file.html -s "#admin" --title "Admin Panel" -p "admin-pw"
+      lockhtml lock index.html
+      lockhtml lock site/ -r
+      lockhtml lock site/ -r -d _locked/
+      lockhtml lock file.html -p "password"
+      lockhtml lock site/ --css custom.css
+      lockhtml lock file.html --selector "#secret"
+      lockhtml lock file.html -s "#main" -s ".private" --hint "Password hint"
+      lockhtml lock file.html -s "#admin" --title "Admin Panel" -p "admin-pw"
     """
     if not paths:
         raise click.UsageError("No files or directories specified")
@@ -154,7 +263,8 @@ def encrypt(
 
     # Set default output directory
     if output_dir is None:
-        output_dir = "encrypted"
+        output_dir = "_locked"
+        click.echo(f"Writing to {output_dir}/ (use -d to change)")
     output_base = Path(output_dir)
 
     # Collect files to process
@@ -182,7 +292,7 @@ def encrypt(
         # Apply wrapping
         content_was_wrapped = False
         if selectors:
-            content = wrap_elements_for_encryption(
+            content = mark_elements(
                 content,
                 list(selectors),
                 hint=selector_hint,
@@ -192,7 +302,7 @@ def encrypt(
             content_was_wrapped = has_lockhtml_elements(content)
         elif not has_lockhtml_elements(content):
             # Default: wrap all body content
-            content = wrap_body_for_encryption(
+            content = mark_body(
                 content,
                 hint=selector_hint,
                 remember=selector_remember,
@@ -209,7 +319,7 @@ def encrypt(
         rel_output = _relative_path(output_path)
 
         if dry_run:
-            click.echo(f"Would encrypt: {rel_input} -> {rel_output}")
+            click.echo(f"Would lock: {rel_input} -> {rel_output}")
             processed += 1
             continue
 
@@ -224,7 +334,7 @@ def encrypt(
                     output_path,
                     password=pwd,
                     config=config,
-                    encrypt_mode=True,
+                    mode="lock",
                     custom_css=custom_css,
                     users=users,
                 )
@@ -234,19 +344,19 @@ def encrypt(
                     output_path,
                     password=pwd,
                     config=config,
-                    encrypt_mode=True,
+                    mode="lock",
                     custom_css=custom_css,
                     users=users,
                 )
             if changed:
-                click.echo(f"Encrypted: {rel_input} -> {rel_output}")
+                click.echo(f"Locked: {rel_input} -> {rel_output}")
                 processed += 1
             else:
                 skipped += 1
         except LockhtmlError as e:
             click.echo(f"Error processing {rel_input}: {e}", err=True)
 
-    click.echo(f"\n{processed} file(s) encrypted, {skipped} skipped")
+    click.echo(f"\n{processed} file(s) locked, {skipped} skipped")
 
 
 @main.command()
@@ -257,7 +367,7 @@ def encrypt(
     "--directory",
     "output_dir",
     type=click.Path(),
-    help="Output directory (default: decrypted/)",
+    help="Output directory (default: _unlocked/)",
 )
 @click.option("-p", "--password", help="Decryption password (or use config/env)")
 @click.option("-u", "--username", help="Username for multi-user encrypted content")
@@ -269,15 +379,17 @@ def encrypt(
     help="Config file path",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be done without changes")
-def decrypt(paths, recursive, output_dir, password, config_path, dry_run, username):
-    """Decrypt HTML files with encrypted <lockhtml-encrypt> regions.
+def unlock(paths, recursive, output_dir, password, config_path, dry_run, username):
+    """Unlock (decrypt) HTML files with encrypted <lockhtml-encrypt> regions.
+
+    Returns files to "marked" state (plaintext inside <lockhtml-encrypt> wrappers).
 
     \b
     Examples:
-      lockhtml decrypt encrypted/index.html
-      lockhtml decrypt encrypted/ -r
-      lockhtml decrypt encrypted/ -r -d restored/
-      lockhtml decrypt encrypted/file.html -u alice -p "alice-pw"
+      lockhtml unlock _locked/index.html
+      lockhtml unlock _locked/ -r
+      lockhtml unlock _locked/ -r -d _unlocked/
+      lockhtml unlock _locked/file.html -u alice -p "alice-pw"
     """
     if not paths:
         raise click.UsageError("No files or directories specified")
@@ -299,7 +411,8 @@ def decrypt(paths, recursive, output_dir, password, config_path, dry_run, userna
 
     # Set default output directory
     if output_dir is None:
-        output_dir = "decrypted"
+        output_dir = "_unlocked"
+        click.echo(f"Writing to {output_dir}/ (use -d to change)")
     output_base = Path(output_dir)
 
     # Collect files to process
@@ -331,7 +444,7 @@ def decrypt(paths, recursive, output_dir, password, config_path, dry_run, userna
         rel_output = _relative_path(output_path)
 
         if dry_run:
-            click.echo(f"Would decrypt: {rel_input} -> {rel_output}")
+            click.echo(f"Would unlock: {rel_input} -> {rel_output}")
             processed += 1
             continue
 
@@ -341,18 +454,18 @@ def decrypt(paths, recursive, output_dir, password, config_path, dry_run, userna
                 output_path,
                 password=pwd,
                 config=config,
-                encrypt_mode=False,
+                mode="unlock",
                 username=username,
             )
             if changed:
-                click.echo(f"Decrypted: {rel_input} -> {rel_output}")
+                click.echo(f"Unlocked: {rel_input} -> {rel_output}")
                 processed += 1
             else:
                 skipped += 1
         except LockhtmlError as e:
             click.echo(f"Error processing {rel_input}: {e}", err=True)
 
-    click.echo(f"\n{processed} file(s) decrypted, {skipped} skipped")
+    click.echo(f"\n{processed} file(s) unlocked, {skipped} skipped")
 
 
 @main.command()
@@ -486,7 +599,7 @@ def config_init(directory):
         click.echo("\nNext steps:")
         click.echo("  1. Edit the password in .lockhtml.yaml")
         click.echo("  2. Add .lockhtml.yaml to .gitignore")
-        click.echo("  3. Run: lockhtml encrypt <file.html>")
+        click.echo("  3. Run: lockhtml lock <file.html>")
     except LockhtmlError as e:
         raise click.ClickException(str(e))
 
@@ -532,6 +645,348 @@ def config_where(directory):
         click.echo(f"Config file: {config_path}")
     else:
         click.echo(f"No {CONFIG_FILENAME} found (searched from {start})")
+
+
+@config.group()
+def user():
+    """Manage users for multi-user encryption."""
+    pass
+
+
+def _resolve_config_path(config_path: str | None) -> Path:
+    """Find config file from explicit path or directory traversal.
+
+    Args:
+        config_path: Explicit path from -c flag, or None.
+
+    Returns:
+        Resolved Path to config file.
+
+    Raises:
+        click.ClickException: If no config file found.
+    """
+    if config_path:
+        return Path(config_path)
+    found = find_config_file()
+    if not found:
+        raise click.ClickException(
+            f"No {CONFIG_FILENAME} found. Run 'lockhtml config init' first."
+        )
+    return found
+
+
+@user.command("add")
+@click.argument("username")
+@click.option("-p", "--password", "user_password", help="Password (prompts if omitted)")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+def user_add(username, user_password, config_path):
+    """Add a new user to the config.
+
+    Prompts for password interactively unless -p is given.
+    """
+    resolved = _resolve_config_path(config_path)
+
+    # Validate username
+    if not username:
+        raise click.ClickException("Username cannot be empty.")
+    if ":" in username:
+        raise click.ClickException(
+            f"Username '{username}' cannot contain ':' (used as delimiter)."
+        )
+
+    # Load current config
+    try:
+        cfg = load_config(config_path=resolved)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    users = dict(cfg.users) if cfg.users else {}
+
+    if username in users:
+        raise click.ClickException(
+            f"User '{username}' already exists. "
+            "Use 'lockhtml config user passwd' to change their password."
+        )
+
+    # Get password
+    if not user_password:
+        user_password = click.prompt(
+            "Password", hide_input=True, confirmation_prompt=True
+        )
+    if not user_password:
+        raise click.ClickException("Password cannot be empty.")
+
+    users[username] = user_password
+
+    try:
+        update_config_users(resolved, users)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    click.echo(f"Added user '{username}'.")
+    click.echo("Run 'lockhtml sync' to update encrypted files for the new user.")
+
+
+@user.command("rm")
+@click.argument("username")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+def user_rm(username, config_path):
+    """Remove a user from the config."""
+    resolved = _resolve_config_path(config_path)
+
+    try:
+        cfg = load_config(config_path=resolved)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    users = dict(cfg.users) if cfg.users else {}
+
+    if username not in users:
+        raise click.ClickException(f"User '{username}' not found.")
+
+    del users[username]
+
+    try:
+        update_config_users(resolved, users if users else None)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    click.echo(f"Removed user '{username}'.")
+    click.echo("Run 'lockhtml sync' to update encrypted files.")
+
+
+@user.command("list")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+def user_list(config_path):
+    """List configured users."""
+    resolved = _resolve_config_path(config_path)
+
+    try:
+        cfg = load_config(config_path=resolved)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    if not cfg.users:
+        click.echo("(no users configured)")
+        return
+
+    for name in cfg.users:
+        click.echo(name)
+
+
+@user.command("passwd")
+@click.argument("username")
+@click.option(
+    "-p",
+    "--password",
+    "user_password",
+    help="New password (prompts if omitted)",
+)
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+def user_passwd(username, user_password, config_path):
+    """Change a user's password."""
+    resolved = _resolve_config_path(config_path)
+
+    try:
+        cfg = load_config(config_path=resolved)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    users = dict(cfg.users) if cfg.users else {}
+
+    if username not in users:
+        raise click.ClickException(f"User '{username}' not found.")
+
+    if not user_password:
+        user_password = click.prompt(
+            "New password", hide_input=True, confirmation_prompt=True
+        )
+    if not user_password:
+        raise click.ClickException("Password cannot be empty.")
+
+    users[username] = user_password
+
+    try:
+        update_config_users(resolved, users)
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    click.echo(f"Password updated for '{username}'.")
+    click.echo("Run 'lockhtml sync' to update encrypted files.")
+
+
+@main.group()
+def wrap():
+    """Encrypt arbitrary files into self-contained HTML.
+
+    \b
+    Commands:
+      lockhtml wrap file <path>  Wrap a single file
+      lockhtml wrap site <dir>   Wrap a directory as a site
+    """
+    pass
+
+
+@wrap.command("file")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("-p", "--password", help="Encryption password")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_path",
+    type=click.Path(),
+    help="Output HTML file path (default: <filename>.html)",
+)
+def wrap_file_cmd(path, password, config_path, output_path):
+    """Wrap a single file into self-contained encrypted HTML.
+
+    The output HTML file contains everything needed to decrypt and view
+    the file in a browser — no server required.
+
+    \b
+    Examples:
+      lockhtml wrap file paper.pdf -p "password"
+      lockhtml wrap file diagram.png -p "password" -o diagram.html
+      lockhtml wrap file data.csv -c .lockhtml.yaml
+    """
+    from .wrap import wrap_file
+
+    # Load configuration
+    try:
+        config = load_config(
+            config_path=Path(config_path) if config_path else None,
+            start_path=Path(path),
+            password_override=password,
+        )
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    # Determine password and users
+    users = config.users
+    if password and users:
+        users = None
+        pwd = password
+    elif users:
+        pwd = None
+    else:
+        pwd = config.password
+        if not pwd:
+            pwd = click.prompt("Enter encryption password", hide_input=True)
+
+    try:
+        result = wrap_file(
+            Path(path),
+            password=pwd,
+            config=config,
+            output_path=Path(output_path) if output_path else None,
+            users=users,
+        )
+        click.echo(f"Wrapped: {path} -> {result}")
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+
+@wrap.command("site")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("-p", "--password", help="Encryption password")
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+@click.option(
+    "-o",
+    "--output",
+    "output_path",
+    type=click.Path(),
+    help="Output HTML file path (default: <dirname>.html)",
+)
+@click.option(
+    "--entry",
+    default="index.html",
+    help="Entry point HTML file within the directory (default: index.html)",
+)
+def wrap_site_cmd(path, password, config_path, output_path, entry):
+    """Wrap a directory into self-contained encrypted HTML.
+
+    All files in the directory are compressed and encrypted into a single
+    HTML file. The browser extracts and renders the site after decryption.
+
+    \b
+    Examples:
+      lockhtml wrap site my-site/ -p "password"
+      lockhtml wrap site my-site/ -p "password" -o my-site.html
+      lockhtml wrap site docs/ -p "password" --entry home.html
+    """
+    from .wrap import wrap_site
+
+    # Load configuration
+    try:
+        config = load_config(
+            config_path=Path(config_path) if config_path else None,
+            start_path=Path(path),
+            password_override=password,
+        )
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
+
+    # Determine password and users
+    users = config.users
+    if password and users:
+        users = None
+        pwd = password
+    elif users:
+        pwd = None
+    else:
+        pwd = config.password
+        if not pwd:
+            pwd = click.prompt("Enter encryption password", hide_input=True)
+
+    try:
+        result = wrap_site(
+            Path(path),
+            password=pwd,
+            config=config,
+            output_path=Path(output_path) if output_path else None,
+            users=users,
+            entry=entry,
+        )
+        click.echo(f"Wrapped: {path} -> {result}")
+    except LockhtmlError as e:
+        raise click.ClickException(str(e))
 
 
 def _collect_files(paths: tuple, recursive: bool) -> list[Path]:

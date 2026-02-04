@@ -11,6 +11,7 @@ from lockhtml.config import (
     create_default_config,
     find_config_file,
     load_config,
+    update_config_users,
 )
 from lockhtml.crypto import LockhtmlError, generate_salt, salt_to_hex
 
@@ -330,3 +331,105 @@ template:
         content = config_path.read_text()
         assert "# users:" in content
         assert "#   alice:" in content
+
+
+class TestUpdateConfigUsers:
+    """Tests for update_config_users function."""
+
+    def test_add_users_to_empty_config(self, tmp_path):
+        """Test adding users to a config with no users section."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text('password: "test-pw"\n')
+
+        update_config_users(config_path, {"alice": "pw-a", "bob": "pw-b"})
+
+        config = load_config(config_path=config_path)
+        assert config.users == {"alice": "pw-a", "bob": "pw-b"}
+        assert config.password == "test-pw"
+
+    def test_update_existing_users(self, tmp_path):
+        """Test updating an existing users section."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "test-pw"
+users:
+  alice: "old-pw"
+""")
+
+        update_config_users(config_path, {"alice": "new-pw", "bob": "pw-b"})
+
+        config = load_config(config_path=config_path)
+        assert config.users == {"alice": "new-pw", "bob": "pw-b"}
+
+    def test_remove_last_user_removes_key(self, tmp_path):
+        """Test removing the last user removes the users key entirely."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "test-pw"
+users:
+  alice: "pw-a"
+""")
+
+        update_config_users(config_path, None)
+
+        config = load_config(config_path=config_path)
+        assert config.users is None
+        assert config.password == "test-pw"
+
+    def test_preserves_other_config_keys(self, tmp_path):
+        """Test that other config keys are preserved after update."""
+        salt = generate_salt()
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(f"""
+password: "test-pw"
+salt: "{salt_to_hex(salt)}"
+defaults:
+  remember: "local"
+  remember_days: 7
+template:
+  title: "Custom Title"
+managed:
+  - "site/**/*.html"
+""")
+
+        update_config_users(config_path, {"alice": "pw-a"})
+
+        config = load_config(config_path=config_path)
+        assert config.users == {"alice": "pw-a"}
+        assert config.password == "test-pw"
+        assert config.salt == salt
+        assert config.defaults.remember == "local"
+        assert config.defaults.remember_days == 7
+        assert config.template.title == "Custom Title"
+        assert config.managed == ["site/**/*.html"]
+
+    def test_writes_header_comment(self, tmp_path):
+        """Test that the output file has the warning header."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text('password: "test-pw"\n')
+
+        update_config_users(config_path, {"alice": "pw-a"})
+
+        content = config_path.read_text()
+        assert content.startswith("# lockhtml configuration\n")
+        assert "WARNING" in content
+        assert ".gitignore" in content
+
+    def test_empty_dict_removes_users(self, tmp_path):
+        """Test that an empty dict removes the users section (falsy)."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "test-pw"
+users:
+  alice: "pw-a"
+""")
+
+        update_config_users(config_path, {})
+
+        content = config_path.read_text()
+        assert "users:" not in content
+
+    def test_nonexistent_file_raises(self, tmp_path):
+        """Test that a nonexistent file raises LockhtmlError."""
+        with pytest.raises(LockhtmlError, match="Cannot read"):
+            update_config_users(tmp_path / "nonexistent.yaml", {"alice": "pw"})

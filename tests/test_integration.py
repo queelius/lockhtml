@@ -14,10 +14,10 @@ from lockhtml import encrypt
 from lockhtml.cli import main
 from lockhtml.config import LockhtmlConfig, create_default_config, load_config
 from lockhtml.parser import (
-    decrypt_html,
-    encrypt_html,
+    lock_html,
+    mark_body,
     sync_html_keys,
-    wrap_body_for_encryption,
+    unlock_html,
 )
 
 
@@ -77,7 +77,7 @@ class TestHtmlOutput:
 </body>
 </html>"""
 
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
         soup = BeautifulSoup(encrypted, "lxml")
 
         # Document structure preserved
@@ -118,7 +118,7 @@ class TestHtmlOutput:
     def test_encrypted_html_contains_web_component(self):
         """Test encrypted HTML contains Web Component definition."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
 
         # Web Component registration
         assert "customElements.define" in encrypted
@@ -141,7 +141,7 @@ class TestBrowserFeatures:
     def test_auto_decrypt_from_storage(self):
         """Test JS includes localStorage auto-decrypt logic."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
 
         assert "localStorage" in encrypted
         assert "sessionStorage" in encrypted
@@ -150,7 +150,7 @@ class TestBrowserFeatures:
     def test_url_fragment_handling(self):
         """Test JS includes URL fragment handling."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
 
         assert "lockhtml_pwd" in encrypted
         assert "lockhtml_logout" in encrypted
@@ -160,7 +160,7 @@ class TestBrowserFeatures:
         """Test JS handles remember-me options."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
         config = LockhtmlConfig()
-        encrypted = encrypt_html(html, "password", config)
+        encrypted = lock_html(html, "password", config)
 
         assert "storeCredentials" in encrypted
         assert "clearStoredPasswords" in encrypted
@@ -169,7 +169,7 @@ class TestBrowserFeatures:
     def test_decryption_event_dispatched(self):
         """Test JS dispatches event after decryption."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
 
         assert "lockhtml:decrypted" in encrypted
         assert "CustomEvent" in encrypted
@@ -223,12 +223,12 @@ class TestFullWorkflow:
         )
         config_path.write_text(config_content)
 
-        # 3. Encrypt site
+        # 3. Lock site
         output_dir = tmp_path / "dist"
         result = runner.invoke(
             main,
             [
-                "encrypt",
+                "lock",
                 str(site_dir),
                 "-r",
                 "-c",
@@ -238,9 +238,9 @@ class TestFullWorkflow:
             ],
         )
         assert result.exit_code == 0
-        # Both files get encrypted: index.html has lockhtml elements,
+        # Both files get locked: index.html has lockhtml elements,
         # about.html gets default body wrapping (v2 behavior)
-        assert "2 file(s) encrypted" in result.output
+        assert "2 file(s) locked" in result.output
 
         # 4. Verify output
         index_encrypted = (output_dir / "index.html").read_text()
@@ -253,12 +253,12 @@ class TestFullWorkflow:
         assert "Member Content" not in index_encrypted
         assert "Public footer" in index_encrypted
 
-        # 5. Decrypt to verify
+        # 5. Unlock to verify
         restored_dir = tmp_path / "restored"
         result = runner.invoke(
             main,
             [
-                "decrypt",
+                "unlock",
                 str(output_dir),
                 "-r",
                 "-c",
@@ -327,8 +327,8 @@ class TestEdgeCases:
 <p>Unicode: 日本語 🔒 émoji</p>
 </lockhtml-encrypt>"""
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         assert "&amp;" in decrypted
         assert "日本語" in decrypted
@@ -346,8 +346,8 @@ class TestEdgeCases:
 </div>
 </lockhtml-encrypt>"""
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         soup = BeautifulSoup(decrypted, "html.parser")
         inner = soup.select_one(".outer .middle .inner span")
@@ -362,8 +362,8 @@ class TestEdgeCases:
 </div>
 </lockhtml-encrypt>"""
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         soup = BeautifulSoup(decrypted, "html.parser")
         div = soup.find("div", {"id": "main"})
@@ -382,8 +382,8 @@ class TestEdgeCases:
 </pre>
 </lockhtml-encrypt>"""
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         # Pre tag content should be preserved
         assert "<pre>" in decrypted
@@ -409,11 +409,11 @@ class TestMultiUserWorkflow:
 
         users = {"alice": "pw-alice", "bob": "pw-bob"}
 
-        encrypted = encrypt_html(html, users=users)
+        encrypted = lock_html(html, users=users)
 
         # Both users should be able to decrypt
         for username, password in users.items():
-            decrypted = decrypt_html(encrypted, password, username=username)
+            decrypted = unlock_html(encrypted, password, username=username)
             assert "Team secret content" in decrypted
             assert "data-encrypted" not in decrypted
 
@@ -425,7 +425,7 @@ class TestMultiUserWorkflow:
 
         # Encrypt with alice only
         initial_users = {"alice": "pw-alice"}
-        encrypted = encrypt_html(html, users=initial_users)
+        encrypted = lock_html(html, users=initial_users)
         assert "Original content" not in encrypted
 
         # Sync to add bob
@@ -437,11 +437,11 @@ class TestMultiUserWorkflow:
         )
 
         # Bob should now be able to decrypt
-        decrypted = decrypt_html(synced, "pw-bob", username="bob")
+        decrypted = unlock_html(synced, "pw-bob", username="bob")
         assert "Original content" in decrypted
 
         # Alice should still be able to decrypt
-        decrypted = decrypt_html(synced, "pw-alice", username="alice")
+        decrypted = unlock_html(synced, "pw-alice", username="alice")
         assert "Original content" in decrypted
 
     def test_sync_after_removing_user(self):
@@ -452,7 +452,7 @@ class TestMultiUserWorkflow:
 
         # Encrypt with both users
         initial_users = {"alice": "pw-alice", "bob": "pw-bob"}
-        encrypted = encrypt_html(html, users=initial_users)
+        encrypted = lock_html(html, users=initial_users)
 
         # Sync to remove bob
         reduced_users = {"alice": "pw-alice"}
@@ -463,14 +463,14 @@ class TestMultiUserWorkflow:
         )
 
         # Alice should still be able to decrypt
-        decrypted = decrypt_html(synced, "pw-alice", username="alice")
+        decrypted = unlock_html(synced, "pw-alice", username="alice")
         assert "Restricted content" in decrypted
 
         # Bob should no longer be able to decrypt
         from lockhtml.crypto import LockhtmlError
 
         with pytest.raises(LockhtmlError):
-            decrypt_html(synced, "pw-bob", username="bob")
+            unlock_html(synced, "pw-bob", username="bob")
 
     def test_sync_with_rekey(self):
         """Test encrypt then sync --rekey, verify content still decryptable."""
@@ -479,7 +479,7 @@ class TestMultiUserWorkflow:
 </lockhtml-encrypt>"""
 
         users = {"alice": "pw-alice", "bob": "pw-bob"}
-        encrypted = encrypt_html(html, users=users)
+        encrypted = lock_html(html, users=users)
 
         # Sync with rekey (generates new CEK)
         synced = sync_html_keys(
@@ -491,7 +491,7 @@ class TestMultiUserWorkflow:
 
         # Content should still be decryptable by both users
         for username, password in users.items():
-            decrypted = decrypt_html(synced, password, username=username)
+            decrypted = unlock_html(synced, password, username=username)
             assert "Rekeyed content" in decrypted
 
 
@@ -511,15 +511,15 @@ class TestBodyWrapWorkflow:
 </html>"""
 
         # Wrap body (simulates what CLI does before encrypt)
-        wrapped = wrap_body_for_encryption(html)
+        wrapped = mark_body(html)
         assert "<lockhtml-encrypt>" in wrapped
 
         # Encrypt
-        encrypted = encrypt_html(wrapped, "password")
+        encrypted = lock_html(wrapped, "password")
         assert "Welcome" not in encrypted
         assert "data-encrypted=" in encrypted
 
         # Decrypt
-        decrypted = decrypt_html(encrypted, "password")
+        decrypted = unlock_html(encrypted, "password")
         assert "Welcome" in decrypted
         assert "public-looking content" in decrypted

@@ -26,14 +26,14 @@ class EncryptedRegion:
     remember: str | None
 
 
-def wrap_elements_for_encryption(
+def mark_elements(
     html: str,
     selectors: list[str],
     hint: str | None = None,
     remember: str | None = None,
     title: str | None = None,
 ) -> str:
-    """Wrap elements matching CSS selectors in <lockhtml-encrypt> tags.
+    """Mark elements matching CSS selectors by wrapping in <lockhtml-encrypt> tags.
 
     Args:
         html: HTML content.
@@ -79,13 +79,13 @@ def wrap_elements_for_encryption(
     return str(soup)
 
 
-def wrap_body_for_encryption(
+def mark_body(
     html: str,
     hint: str | None = None,
     remember: str | None = None,
     title: str | None = None,
 ) -> str:
-    """Wrap all body content in a single <lockhtml-encrypt> element.
+    """Mark all body content for encryption by wrapping in a single <lockhtml-encrypt> element.
 
     Used as default when no --selector is provided.
     Preserves <head> and wraps all <body> children.
@@ -191,7 +191,7 @@ def is_already_encrypted(element: Tag) -> bool:
     return element.has_attr("data-encrypted")
 
 
-def encrypt_html(
+def lock_html(
     html: str,
     password: str | None = None,
     config: LockhtmlConfig | None = None,
@@ -200,7 +200,7 @@ def encrypt_html(
     users: dict[str, str] | None = None,
     meta: dict | None = None,
 ) -> str:
-    """Encrypt all <lockhtml-encrypt> regions in an HTML document.
+    """Lock (encrypt) all <lockhtml-encrypt> regions in an HTML document.
 
     Args:
         html: The HTML document as a string.
@@ -293,12 +293,12 @@ def encrypt_html(
     return str(soup)
 
 
-def decrypt_html(
+def unlock_html(
     html: str,
     password: str,
     username: str | None = None,
 ) -> str:
-    """Decrypt all encrypted <lockhtml-encrypt> regions in an HTML document.
+    """Unlock (decrypt) all encrypted <lockhtml-encrypt> regions in an HTML document.
 
     Args:
         html: The HTML document as a string.
@@ -1005,7 +1005,8 @@ def process_file(
     output_path: Path,
     password: str | None = None,
     config: LockhtmlConfig | None = None,
-    encrypt_mode: bool = True,
+    encrypt_mode: bool | None = None,
+    mode: str | None = None,
     custom_css: str | None = None,
     users: dict[str, str] | None = None,
     username: str | None = None,
@@ -1018,7 +1019,8 @@ def process_file(
         output_path: Path to write output file.
         password: Password for encryption/decryption.
         config: Optional configuration.
-        encrypt_mode: True for encryption, False for decryption.
+        encrypt_mode: Deprecated. Use mode instead. True for lock, False for unlock.
+        mode: "lock" or "unlock". Takes precedence over encrypt_mode.
         custom_css: Optional custom CSS (overrides config.custom_css).
         users: Dict of {username: password} for multi-user encryption.
         username: Username for decryption in multi-user mode.
@@ -1030,14 +1032,22 @@ def process_file(
     Raises:
         LockhtmlError: If processing fails.
     """
+    # Resolve mode from either parameter
+    if mode is not None:
+        do_lock = mode == "lock"
+    elif encrypt_mode is not None:
+        do_lock = encrypt_mode
+    else:
+        do_lock = True
+
     try:
         html = input_path.read_text(encoding="utf-8")
     except OSError as e:
         raise LockhtmlError(f"Cannot read file {input_path}: {e}") from e
 
-    if encrypt_mode:
+    if do_lock:
         salt = config.salt if config else None
-        processed = encrypt_html(
+        processed = lock_html(
             html,
             password=password,
             config=config,
@@ -1047,7 +1057,7 @@ def process_file(
             meta=meta,
         )
     else:
-        processed = decrypt_html(html, password, username=username)
+        processed = unlock_html(html, password, username=username)
 
     if processed == html:
         return False
@@ -1061,3 +1071,10 @@ def process_file(
         raise LockhtmlError(f"Cannot write file {output_path}: {e}") from e
 
     return True
+
+
+# Backward-compatibility aliases
+encrypt_html = lock_html
+decrypt_html = unlock_html
+wrap_elements_for_encryption = mark_elements
+wrap_body_for_encryption = mark_body

@@ -327,6 +327,42 @@ template:
     return config_path
 
 
+def update_config_users(config_path: Path, users: dict[str, str] | None) -> None:
+    """Update the users section in a config file.
+
+    Loads the existing YAML, modifies the 'users' key, writes back.
+    Note: comments in the original file are not preserved.
+
+    Args:
+        config_path: Path to .lockhtml.yaml file.
+        users: New users dict, or None to remove the users section.
+
+    Raises:
+        LockhtmlError: If file cannot be read or written.
+    """
+    try:
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise LockhtmlError(f"Invalid YAML in {config_path}: {e}") from e
+    except OSError as e:
+        raise LockhtmlError(f"Cannot read config file {config_path}: {e}") from e
+
+    if users:
+        data["users"] = users
+    elif "users" in data:
+        del data["users"]
+
+    content = "# lockhtml configuration\n"
+    content += "# WARNING: Add this file to .gitignore - it contains passwords!\n\n"
+    content += yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    try:
+        config_path.write_text(content)
+    except OSError as e:
+        raise LockhtmlError(f"Cannot write config file {config_path}: {e}") from e
+
+
 def config_to_dict(config: LockhtmlConfig) -> dict[str, Any]:
     """Convert config to dictionary for display.
 

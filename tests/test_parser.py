@@ -6,26 +6,26 @@ from bs4 import BeautifulSoup
 from lockhtml.config import DefaultsConfig, LockhtmlConfig, TemplateConfig
 from lockhtml.crypto import LockhtmlError, content_hash, decrypt, generate_salt
 from lockhtml.parser import (
-    decrypt_html,
-    encrypt_html,
     extract_element_content,
     find_lockhtml_elements,
     has_lockhtml_elements,
     is_already_encrypted,
+    lock_html,
+    mark_body,
+    mark_elements,
     sync_html_keys,
-    wrap_body_for_encryption,
-    wrap_elements_for_encryption,
+    unlock_html,
 )
 
 
-class TestWrapElementsForEncryption:
-    """Tests for wrap_elements_for_encryption function."""
+class TestMarkElements:
+    """Tests for mark_elements function."""
 
     def test_wraps_single_element_by_id(self):
         """Test wrapping element by ID selector."""
         html = '<html><body><div id="secret">Secret content</div></body></html>'
 
-        result = wrap_elements_for_encryption(html, ["#secret"])
+        result = mark_elements(html, ["#secret"])
 
         assert "<lockhtml-encrypt>" in result
         assert "</lockhtml-encrypt>" in result
@@ -35,7 +35,7 @@ class TestWrapElementsForEncryption:
         """Test wrapping element by class selector."""
         html = '<html><body><div class="private">Private content</div></body></html>'
 
-        result = wrap_elements_for_encryption(html, [".private"])
+        result = mark_elements(html, [".private"])
 
         soup = BeautifulSoup(result, "html.parser")
         wrapper = soup.find("lockhtml-encrypt")
@@ -49,7 +49,7 @@ class TestWrapElementsForEncryption:
             <div class="second">Second</div>
         </body></html>"""
 
-        result = wrap_elements_for_encryption(html, ["#first", ".second"])
+        result = mark_elements(html, ["#first", ".second"])
 
         assert result.count("<lockhtml-encrypt>") == 2
 
@@ -60,7 +60,7 @@ class TestWrapElementsForEncryption:
             <div class="secret">Two</div>
         </body></html>"""
 
-        result = wrap_elements_for_encryption(html, [".secret"])
+        result = mark_elements(html, [".secret"])
 
         assert result.count("<lockhtml-encrypt>") == 2
 
@@ -68,7 +68,7 @@ class TestWrapElementsForEncryption:
         """Test hint attribute is added to wrapper."""
         html = '<html><body><div id="secret">Secret</div></body></html>'
 
-        result = wrap_elements_for_encryption(html, ["#secret"], hint="Password hint")
+        result = mark_elements(html, ["#secret"], hint="Password hint")
 
         assert 'hint="Password hint"' in result
 
@@ -76,7 +76,7 @@ class TestWrapElementsForEncryption:
         """Test remember attribute is added to wrapper."""
         html = '<html><body><div id="secret">Secret</div></body></html>'
 
-        result = wrap_elements_for_encryption(html, ["#secret"], remember="local")
+        result = mark_elements(html, ["#secret"], remember="local")
 
         assert 'remember="local"' in result
 
@@ -84,9 +84,7 @@ class TestWrapElementsForEncryption:
         """Test both hint and remember are added."""
         html = '<html><body><div id="secret">Secret</div></body></html>'
 
-        result = wrap_elements_for_encryption(
-            html, ["#secret"], hint="The hint", remember="session"
-        )
+        result = mark_elements(html, ["#secret"], hint="The hint", remember="session")
 
         assert 'hint="The hint"' in result
         assert 'remember="session"' in result
@@ -98,7 +96,7 @@ class TestWrapElementsForEncryption:
             "Already wrapped</lockhtml-encrypt></body></html>"
         )
 
-        result = wrap_elements_for_encryption(html, ["lockhtml-encrypt"])
+        result = mark_elements(html, ["lockhtml-encrypt"])
 
         # Should be wrapped in another lockhtml-encrypt (closure property)
         assert result.count("<lockhtml-encrypt") == 2
@@ -111,7 +109,7 @@ class TestWrapElementsForEncryption:
             "</lockhtml-encrypt></body></html>"
         )
 
-        result = wrap_elements_for_encryption(html, ["#inner"])
+        result = mark_elements(html, ["#inner"])
 
         # Should not wrap the inner div
         assert result.count("<lockhtml-encrypt>") == 1
@@ -120,7 +118,7 @@ class TestWrapElementsForEncryption:
         """Test returns unchanged HTML when no selectors provided."""
         html = '<html><body><div id="secret">Secret</div></body></html>'
 
-        result = wrap_elements_for_encryption(html, [])
+        result = mark_elements(html, [])
 
         # No lockhtml-encrypt should be added
         assert "<lockhtml-encrypt>" not in result
@@ -129,7 +127,7 @@ class TestWrapElementsForEncryption:
         """Test handles no matching elements gracefully."""
         html = "<html><body><div>Regular content</div></body></html>"
 
-        result = wrap_elements_for_encryption(html, ["#nonexistent", ".missing"])
+        result = mark_elements(html, ["#nonexistent", ".missing"])
 
         assert "<lockhtml-encrypt>" not in result
 
@@ -141,23 +139,23 @@ class TestWrapElementsForEncryption:
             </article>
         </body></html>"""
 
-        result = wrap_elements_for_encryption(html, ["article.post .content"])
+        result = mark_elements(html, ["article.post .content"])
 
         soup = BeautifulSoup(result, "html.parser")
         wrapper = soup.find("lockhtml-encrypt")
         assert wrapper is not None
         assert "Article content" in str(wrapper)
 
-    def test_integration_with_encrypt_html(self):
-        """Test wrapped elements can be encrypted."""
+    def test_integration_with_lock_html(self):
+        """Test marked elements can be encrypted."""
         html = (
             "<html><head><title>Test</title></head>"
             '<body><div id="secret">Secret content'
             "</div></body></html>"
         )
 
-        wrapped = wrap_elements_for_encryption(html, ["#secret"])
-        encrypted = encrypt_html(wrapped, "password")
+        wrapped = mark_elements(html, ["#secret"])
+        encrypted = lock_html(wrapped, "password")
 
         # Content should be encrypted
         assert "Secret content" not in encrypted
@@ -256,8 +254,8 @@ class TestIsAlreadyEncrypted:
         assert is_already_encrypted(element) is False
 
 
-class TestEncryptHtml:
-    """Tests for encrypt_html function."""
+class TestLockHtml:
+    """Tests for lock_html function."""
 
     def test_basic_encryption(self):
         """Test basic HTML encryption."""
@@ -269,7 +267,7 @@ class TestEncryptHtml:
 </body>
 </html>"""
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # Should have data-encrypted attribute
         assert "data-encrypted=" in result
@@ -282,14 +280,14 @@ class TestEncryptHtml:
         """Test hint attribute is preserved."""
         html = '<lockhtml-encrypt hint="Use the magic word">Secret</lockhtml-encrypt>'
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
         assert 'data-hint="Use the magic word"' in result
 
     def test_preserves_remember(self):
         """Test remember attribute is preserved."""
         html = '<lockhtml-encrypt remember="local">Secret</lockhtml-encrypt>'
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
         assert 'data-remember="local"' in result
 
     def test_uses_config_defaults(self):
@@ -297,7 +295,7 @@ class TestEncryptHtml:
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
         config = LockhtmlConfig(defaults=DefaultsConfig(remember="session"))
 
-        result = encrypt_html(html, "password", config)
+        result = lock_html(html, "password", config)
         assert 'data-remember="session"' in result
 
     def test_injects_runtime(self):
@@ -310,7 +308,7 @@ class TestEncryptHtml:
 </body>
 </html>"""
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         assert "data-lockhtml-runtime" in result
         assert "customElements.define" in result
@@ -320,7 +318,7 @@ class TestEncryptHtml:
         """Test HTML without elements is unchanged."""
         html = "<html><body>Normal content</body></html>"
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
         assert result == html
 
     def test_reencrypts_already_encrypted(self):
@@ -329,7 +327,7 @@ class TestEncryptHtml:
             '<lockhtml-encrypt data-encrypted="x">Already encrypted</lockhtml-encrypt>'
         )
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # Should be re-encrypted (composable encryption)
         assert "data-encrypted=" in result
@@ -341,8 +339,8 @@ class TestEncryptHtml:
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
         salt = generate_salt()
 
-        result1 = encrypt_html(html, "password", salt=salt)
-        result2 = encrypt_html(html, "password", salt=salt)
+        result1 = lock_html(html, "password", salt=salt)
+        result2 = lock_html(html, "password", salt=salt)
 
         # Both should decrypt correctly with same password
         soup1 = BeautifulSoup(result1, "html.parser")
@@ -357,15 +355,15 @@ class TestEncryptHtml:
         assert content2 == "Secret"
 
 
-class TestDecryptHtml:
-    """Tests for decrypt_html function."""
+class TestUnlockHtml:
+    """Tests for unlock_html function."""
 
     def test_basic_decryption(self):
         """Test basic HTML decryption."""
         original = "<lockhtml-encrypt>Secret content</lockhtml-encrypt>"
-        encrypted = encrypt_html(original, "password")
+        encrypted = lock_html(original, "password")
 
-        decrypted = decrypt_html(encrypted, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         assert "Secret content" in decrypted
         assert "data-encrypted" not in decrypted
@@ -387,8 +385,8 @@ class TestDecryptHtml:
 </body>
 </html>"""
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         # Public content should be present
         assert "Public Header" in decrypted
@@ -401,34 +399,34 @@ class TestDecryptHtml:
     def test_removes_runtime(self):
         """Test runtime is removed after decryption."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
 
         assert "data-lockhtml-runtime" in encrypted
 
-        decrypted = decrypt_html(encrypted, "password")
+        decrypted = unlock_html(encrypted, "password")
         assert "data-lockhtml-runtime" not in decrypted
 
     def test_wrong_password_fails(self):
         """Test decryption with wrong password fails."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        encrypted = encrypt_html(html, "correct")
+        encrypted = lock_html(html, "correct")
 
         with pytest.raises(LockhtmlError, match="wrong password"):
-            decrypt_html(encrypted, "wrong")
+            unlock_html(encrypted, "wrong")
 
     def test_no_elements_returns_unchanged(self):
         """Test HTML without elements is unchanged."""
         html = "<html><body>Normal content</body></html>"
 
-        result = decrypt_html(html, "password")
+        result = unlock_html(html, "password")
         assert result == html
 
     def test_preserves_hint_for_reencryption(self):
         """Test hint is preserved as original attribute after decryption."""
         html = '<lockhtml-encrypt hint="Remember the hint">Secret</lockhtml-encrypt>'
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         assert 'hint="Remember the hint"' in decrypted
 
@@ -443,7 +441,7 @@ class TestMultipleElements:
         <lockhtml-encrypt hint="hint2">Second</lockhtml-encrypt>
         """
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # Both should be encrypted
         assert "First" not in result
@@ -460,8 +458,8 @@ class TestMultipleElements:
         <lockhtml-encrypt>Second content</lockhtml-encrypt>
         """
 
-        encrypted = encrypt_html(html, "password")
-        decrypted = decrypt_html(encrypted, "password")
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         assert "First content" in decrypted
         assert "Second content" in decrypted
@@ -478,7 +476,7 @@ class TestMultipleElements:
         <lockhtml-encrypt>New content</lockhtml-encrypt>
         """
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # Both should be encrypted (composable encryption)
         assert result.count("data-encrypted=") == 2
@@ -497,7 +495,7 @@ class TestTemplateCustomization:
             template=TemplateConfig(color_primary="#ff0000", color_secondary="#00ff00")
         )
 
-        result = encrypt_html(html, "password", config)
+        result = lock_html(html, "password", config)
 
         assert "#ff0000" in result
         assert "#00ff00" in result
@@ -514,7 +512,7 @@ class TestTemplateCustomization:
             )
         )
 
-        result = encrypt_html(html, "password", config)
+        result = lock_html(html, "password", config)
 
         assert "Custom Title" in result
         assert "Custom Button" in result
@@ -526,7 +524,7 @@ class TestTemplateCustomization:
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
         custom_css = ".my-custom-class { color: purple; }"
 
-        result = encrypt_html(html, "password", custom_css=custom_css)
+        result = lock_html(html, "password", custom_css=custom_css)
 
         # Custom CSS should be included
         assert ".my-custom-class" in result
@@ -539,7 +537,7 @@ class TestTemplateCustomization:
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
         config = LockhtmlConfig(custom_css=".config-class { font-size: 20px; }")
 
-        result = encrypt_html(html, "password", config)
+        result = lock_html(html, "password", config)
 
         assert ".config-class" in result
         assert "font-size: 20px" in result
@@ -550,7 +548,7 @@ class TestTemplateCustomization:
         config = LockhtmlConfig(custom_css=".config-class { color: red; }")
         cli_css = ".cli-class { color: blue; }"
 
-        result = encrypt_html(html, "password", config, custom_css=cli_css)
+        result = lock_html(html, "password", config, custom_css=cli_css)
 
         # CLI CSS should be used
         assert ".cli-class" in result
@@ -567,7 +565,7 @@ class TestContentHashIntegrity:
         html = "<lockhtml-encrypt>Secret content</lockhtml-encrypt>"
         expected_hash = content_hash("Secret content")
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         assert f'data-content-hash="{expected_hash}"' in result
 
@@ -575,10 +573,10 @@ class TestContentHashIntegrity:
         """Test that content hash is removed during decryption."""
         html = "<lockhtml-encrypt>Secret content</lockhtml-encrypt>"
 
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
         assert "data-content-hash=" in encrypted
 
-        decrypted = decrypt_html(encrypted, "password")
+        decrypted = unlock_html(encrypted, "password")
         assert "data-content-hash=" not in decrypted
 
     def test_hash_preserved_through_roundtrip(self):
@@ -587,12 +585,12 @@ class TestContentHashIntegrity:
         html = f"<lockhtml-encrypt>{original_content}</lockhtml-encrypt>"
         original_hash = content_hash(original_content)
 
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
 
         # Verify hash is stored
         assert f'data-content-hash="{original_hash}"' in encrypted
 
-        decrypted = decrypt_html(encrypted, "password")
+        decrypted = unlock_html(encrypted, "password")
 
         # Verify content is restored
         assert original_content in decrypted
@@ -603,7 +601,7 @@ class TestContentHashIntegrity:
         html = f"<lockhtml-encrypt>{content}</lockhtml-encrypt>"
         expected_hash = content_hash(content)
 
-        result = encrypt_html(html, "パスワード")
+        result = lock_html(html, "パスワード")
 
         assert f'data-content-hash="{expected_hash}"' in result
 
@@ -612,7 +610,7 @@ class TestContentHashIntegrity:
         html = "<lockhtml-encrypt></lockhtml-encrypt>"
         expected_hash = content_hash("")
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         assert f'data-content-hash="{expected_hash}"' in result
 
@@ -625,7 +623,7 @@ class TestContentHashIntegrity:
         hash1 = content_hash("First content")
         hash2 = content_hash("Second content")
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         assert f'data-content-hash="{hash1}"' in result
         assert f'data-content-hash="{hash2}"' in result
@@ -639,11 +637,11 @@ class TestComposableEncryption:
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
 
         # First encryption
-        encrypted1 = encrypt_html(html, "password1")
+        encrypted1 = lock_html(html, "password1")
         assert "data-encrypted=" in encrypted1
 
         # Second encryption (re-encrypt)
-        encrypted2 = encrypt_html(encrypted1, "password2")
+        encrypted2 = lock_html(encrypted1, "password2")
 
         # Should have new encryption (not skipped)
         soup1 = BeautifulSoup(encrypted1, "html.parser")
@@ -663,15 +661,15 @@ class TestComposableEncryption:
 </body></html>"""
 
         # First encrypt with inner password
-        encrypted1 = encrypt_html(html, "inner")
+        encrypted1 = lock_html(html, "inner")
         assert "data-encrypted=" in encrypted1
         assert "Secret" not in encrypted1
 
         # Wrap the encrypted element in a new lockhtml-encrypt
-        wrapped = wrap_elements_for_encryption(encrypted1, ["lockhtml-encrypt"])
+        wrapped = mark_elements(encrypted1, ["lockhtml-encrypt"])
 
         # Encrypt outer wrapper with different password
-        encrypted2 = encrypt_html(wrapped, "outer")
+        encrypted2 = lock_html(wrapped, "outer")
 
         # Should have 2 encrypted elements (outer wrapping inner)
         soup = BeautifulSoup(encrypted2, "html.parser")
@@ -680,21 +678,21 @@ class TestComposableEncryption:
         assert outer.has_attr("data-encrypted")
 
         # Decrypt outer layer
-        decrypted1 = decrypt_html(encrypted2, "outer")
+        decrypted1 = unlock_html(encrypted2, "outer")
         # Should still have inner encryption
         assert "data-encrypted=" in decrypted1
         assert "Secret" not in decrypted1
 
         # Decrypt inner layer
-        decrypted2 = decrypt_html(decrypted1, "inner")
+        decrypted2 = unlock_html(decrypted1, "inner")
         assert "Secret" in decrypted2
 
     def test_reencrypt_replaces_ciphertext(self):
         """Test re-encrypting the same element replaces (not nests) the ciphertext."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
 
-        encrypted1 = encrypt_html(html, "password1")
-        encrypted2 = encrypt_html(encrypted1, "password2")
+        encrypted1 = lock_html(html, "password1")
+        encrypted2 = lock_html(encrypted1, "password2")
 
         # Only one encrypted element (replaced, not nested)
         soup = BeautifulSoup(encrypted2, "html.parser")
@@ -711,7 +709,7 @@ class TestComposableEncryption:
         """Test wrapping an existing lockhtml-encrypt element for nested encryption."""
         html = '<lockhtml-encrypt data-encrypted="xyz"></lockhtml-encrypt>'
 
-        result = wrap_elements_for_encryption(html, ["lockhtml-encrypt"])
+        result = mark_elements(html, ["lockhtml-encrypt"])
 
         # Should be wrapped in another lockhtml-encrypt
         assert result.count("<lockhtml-encrypt") == 2
@@ -724,12 +722,12 @@ class TestComposableEncryption:
         </body></html>"""
 
         # First pass: encrypt admin section
-        wrapped1 = wrap_elements_for_encryption(html, ["#admin"])
-        encrypted1 = encrypt_html(wrapped1, "admin-password")
+        wrapped1 = mark_elements(html, ["#admin"])
+        encrypted1 = lock_html(wrapped1, "admin-password")
 
         # Second pass: encrypt member section with different password
-        wrapped2 = wrap_elements_for_encryption(encrypted1, ["#member"])
-        encrypted2 = encrypt_html(wrapped2, "member-password")
+        wrapped2 = mark_elements(encrypted1, ["#member"])
+        encrypted2 = lock_html(wrapped2, "member-password")
 
         # Both sections should be encrypted
         assert encrypted2.count("data-encrypted=") == 2
@@ -744,7 +742,7 @@ class TestPerElementTitle:
         """Test title attribute is preserved during encryption."""
         html = '<lockhtml-encrypt title="Admin Panel">Secret</lockhtml-encrypt>'
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         assert 'data-title="Admin Panel"' in result
 
@@ -752,7 +750,7 @@ class TestPerElementTitle:
         """Test title added during wrapping."""
         html = '<div id="secret">Content</div>'
 
-        result = wrap_elements_for_encryption(html, ["#secret"], title="Secret Section")
+        result = mark_elements(html, ["#secret"], title="Secret Section")
 
         assert 'title="Secret Section"' in result
 
@@ -760,30 +758,30 @@ class TestPerElementTitle:
         """Test title survives encrypt/decrypt cycle."""
         html = '<lockhtml-encrypt title="My Title">Secret</lockhtml-encrypt>'
 
-        encrypted = encrypt_html(html, "password")
+        encrypted = lock_html(html, "password")
         assert 'data-title="My Title"' in encrypted
 
-        decrypted = decrypt_html(encrypted, "password")
+        decrypted = unlock_html(encrypted, "password")
         assert 'title="My Title"' in decrypted
 
     def test_title_appears_in_js_runtime(self):
         """Test JS runtime uses per-element title."""
         html = '<lockhtml-encrypt title="Custom Title">Secret</lockhtml-encrypt>'
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # JS should read data-title attribute
         assert "this.getAttribute('data-title')" in result
 
 
-class TestWrapBodyForEncryption:
-    """Tests for wrap_body_for_encryption function."""
+class TestMarkBody:
+    """Tests for mark_body function."""
 
     def test_wraps_body_content(self):
         """Test basic HTML with body content gets wrapped in lockhtml-encrypt."""
         html = "<html><head><title>Test</title></head><body><p>Hello</p></body></html>"
 
-        result = wrap_body_for_encryption(html)
+        result = mark_body(html)
 
         soup = BeautifulSoup(result, "html.parser")
         wrapper = soup.find("lockhtml-encrypt")
@@ -797,7 +795,7 @@ class TestWrapBodyForEncryption:
             "<body><p>Body content</p></body></html>"
         )
 
-        result = wrap_body_for_encryption(html)
+        result = mark_body(html)
 
         soup = BeautifulSoup(result, "html.parser")
         head = soup.find("head")
@@ -810,7 +808,7 @@ class TestWrapBodyForEncryption:
         """Test only one lockhtml-encrypt element is created."""
         html = "<html><head></head><body><p>One</p><p>Two</p><p>Three</p></body></html>"
 
-        result = wrap_body_for_encryption(html)
+        result = mark_body(html)
 
         assert result.count("<lockhtml-encrypt>") == 1
 
@@ -818,7 +816,7 @@ class TestWrapBodyForEncryption:
         """Test HTML without body tag returns unchanged."""
         html = "<html><head><title>Test</title></head></html>"
 
-        result = wrap_body_for_encryption(html)
+        result = mark_body(html)
 
         assert "<lockhtml-encrypt>" not in result
 
@@ -826,7 +824,7 @@ class TestWrapBodyForEncryption:
         """Test HTML with empty body returns unchanged."""
         html = "<html><head></head><body></body></html>"
 
-        result = wrap_body_for_encryption(html)
+        result = mark_body(html)
 
         assert "<lockhtml-encrypt>" not in result
 
@@ -834,7 +832,7 @@ class TestWrapBodyForEncryption:
         """Test body with only whitespace returns unchanged."""
         html = "<html><head></head><body>   \n\t  </body></html>"
 
-        result = wrap_body_for_encryption(html)
+        result = mark_body(html)
 
         assert "<lockhtml-encrypt>" not in result
 
@@ -842,7 +840,7 @@ class TestWrapBodyForEncryption:
         """Test hint parameter adds attribute to wrapper."""
         html = "<html><head></head><body><p>Content</p></body></html>"
 
-        result = wrap_body_for_encryption(html, hint="My hint")
+        result = mark_body(html, hint="My hint")
 
         assert 'hint="My hint"' in result
 
@@ -850,7 +848,7 @@ class TestWrapBodyForEncryption:
         """Test title parameter adds attribute to wrapper."""
         html = "<html><head></head><body><p>Content</p></body></html>"
 
-        result = wrap_body_for_encryption(html, title="My title")
+        result = mark_body(html, title="My title")
 
         assert 'title="My title"' in result
 
@@ -858,7 +856,7 @@ class TestWrapBodyForEncryption:
         """Test remember parameter adds attribute to wrapper."""
         html = "<html><head></head><body><p>Content</p></body></html>"
 
-        result = wrap_body_for_encryption(html, remember="local")
+        result = mark_body(html, remember="local")
 
         assert 'remember="local"' in result
 
@@ -866,9 +864,7 @@ class TestWrapBodyForEncryption:
         """Test all three attributes together."""
         html = "<html><head></head><body><p>Content</p></body></html>"
 
-        result = wrap_body_for_encryption(
-            html, hint="The hint", title="The title", remember="session"
-        )
+        result = mark_body(html, hint="The hint", title="The title", remember="session")
 
         assert 'hint="The hint"' in result
         assert 'title="The title"' in result
@@ -879,10 +875,10 @@ class TestMultiUserEncryptDecrypt:
     """Tests for multi-user encryption and decryption."""
 
     def test_encrypt_with_users_sets_data_mode(self):
-        """Test encrypt_html with users param sets data-mode='user' attribute."""
+        """Test lock_html with users param sets data-mode='user' attribute."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
 
-        result = encrypt_html(html, users={"alice": "pw-a", "bob": "pw-b"})
+        result = lock_html(html, users={"alice": "pw-a", "bob": "pw-b"})
 
         assert 'data-mode="user"' in result
 
@@ -890,8 +886,8 @@ class TestMultiUserEncryptDecrypt:
         """Test encrypt with users, decrypt with username param works."""
         html = "<lockhtml-encrypt>Secret for users</lockhtml-encrypt>"
 
-        encrypted = encrypt_html(html, users={"alice": "pw-a"})
-        decrypted = decrypt_html(encrypted, "pw-a", username="alice")
+        encrypted = lock_html(html, users={"alice": "pw-a"})
+        decrypted = unlock_html(encrypted, "pw-a", username="alice")
 
         assert "Secret for users" in decrypted
 
@@ -905,13 +901,13 @@ class TestMultiUserEncryptDecrypt:
 </body>
 </html>"""
 
-        encrypted = encrypt_html(html, users={"alice": "pw-a", "bob": "pw-b"})
+        encrypted = lock_html(html, users={"alice": "pw-a", "bob": "pw-b"})
 
         # Both users should be able to decrypt
-        decrypted_alice = decrypt_html(encrypted, "pw-a", username="alice")
+        decrypted_alice = unlock_html(encrypted, "pw-a", username="alice")
         assert "Multi-user secret content" in decrypted_alice
 
-        decrypted_bob = decrypt_html(encrypted, "pw-b", username="bob")
+        decrypted_bob = unlock_html(encrypted, "pw-b", username="bob")
         assert "Multi-user secret content" in decrypted_bob
 
     def test_multiuser_js_runtime_has_username_field(self):
@@ -924,7 +920,7 @@ class TestMultiUserEncryptDecrypt:
 </body>
 </html>"""
 
-        result = encrypt_html(html, users={"alice": "pw-a"})
+        result = lock_html(html, users={"alice": "pw-a"})
 
         assert "usernamePlaceholder" in result
 
@@ -932,10 +928,10 @@ class TestMultiUserEncryptDecrypt:
         """Test data-mode attribute is removed after decryption."""
         html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
 
-        encrypted = encrypt_html(html, users={"alice": "pw-a"})
+        encrypted = lock_html(html, users={"alice": "pw-a"})
         assert 'data-mode="user"' in encrypted
 
-        decrypted = decrypt_html(encrypted, "pw-a", username="alice")
+        decrypted = unlock_html(encrypted, "pw-a", username="alice")
         assert "data-mode" not in decrypted
 
 
@@ -949,7 +945,7 @@ class TestSyncHtmlKeys:
         html = "<lockhtml-encrypt>Sync secret</lockhtml-encrypt>"
 
         # Encrypt with alice only
-        encrypted = encrypt_html(html, users={"alice": "pw-a"})
+        encrypted = lock_html(html, users={"alice": "pw-a"})
 
         # Sync to add bob
         result = sync_html_keys(
@@ -972,7 +968,7 @@ class TestSyncHtmlKeys:
         html = "<lockhtml-encrypt>Remove user secret</lockhtml-encrypt>"
 
         # Encrypt with alice and bob
-        encrypted = encrypt_html(html, users={"alice": "pw-a", "bob": "pw-b"})
+        encrypted = lock_html(html, users={"alice": "pw-a", "bob": "pw-b"})
 
         # Sync to remove bob
         result = sync_html_keys(
@@ -999,7 +995,7 @@ class TestSyncHtmlKeys:
         html = "<lockhtml-encrypt>Rekey secret</lockhtml-encrypt>"
 
         # Encrypt with alice
-        encrypted = encrypt_html(html, users={"alice": "pw-a"})
+        encrypted = lock_html(html, users={"alice": "pw-a"})
 
         # Capture original data-encrypted value
         soup_orig = BeautifulSoup(encrypted, "html.parser")
@@ -1027,7 +1023,7 @@ class TestSyncHtmlKeys:
         html = "<lockhtml-encrypt>Mode secret</lockhtml-encrypt>"
 
         # Encrypt with single password
-        encrypted = encrypt_html(html, password="single-pw")
+        encrypted = lock_html(html, password="single-pw")
 
         # Sync to multi-user
         result = sync_html_keys(
@@ -1055,12 +1051,12 @@ class TestAutoMetadata:
     """Tests for auto-populated metadata during encryption."""
 
     def test_meta_auto_populated(self):
-        """Test encrypt_html auto-populates meta with encrypted_at and version."""
+        """Test lock_html auto-populates meta with encrypted_at and version."""
         from lockhtml.crypto import decrypt as crypto_decrypt
 
         html = "<lockhtml-encrypt>Meta test</lockhtml-encrypt>"
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # Extract encrypted data and decrypt to inspect meta
         soup = BeautifulSoup(result, "html.parser")
@@ -1078,7 +1074,53 @@ class TestAutoMetadata:
         html = "<lockhtml-encrypt>Hash test content</lockhtml-encrypt>"
         expected_hash = content_hash("Hash test content")
 
-        result = encrypt_html(html, "password")
+        result = lock_html(html, "password")
 
         # The content hash should match the inner HTML hash, not be affected by meta
         assert f'data-content-hash="{expected_hash}"' in result
+
+
+class TestBackwardCompat:
+    """Tests for backward compatibility of old function name aliases."""
+
+    def test_encrypt_html_alias_works(self):
+        """Test that the old encrypt_html alias still works."""
+        from lockhtml.parser import encrypt_html
+
+        html = "<lockhtml-encrypt>Backward compat test</lockhtml-encrypt>"
+
+        result = encrypt_html(html, "password")
+
+        assert "data-encrypted=" in result
+        assert "Backward compat test" not in result
+
+    def test_decrypt_html_alias_works(self):
+        """Test that the old decrypt_html alias still works."""
+        from lockhtml.parser import decrypt_html, encrypt_html
+
+        html = "<lockhtml-encrypt>Alias roundtrip</lockhtml-encrypt>"
+
+        encrypted = encrypt_html(html, "password")
+        decrypted = decrypt_html(encrypted, "password")
+
+        assert "Alias roundtrip" in decrypted
+
+    def test_wrap_elements_alias_works(self):
+        """Test that the old wrap_elements_for_encryption alias still works."""
+        from lockhtml.parser import wrap_elements_for_encryption
+
+        html = '<html><body><div id="secret">Secret</div></body></html>'
+
+        result = wrap_elements_for_encryption(html, ["#secret"])
+
+        assert "<lockhtml-encrypt>" in result
+
+    def test_wrap_body_alias_works(self):
+        """Test that the old wrap_body_for_encryption alias still works."""
+        from lockhtml.parser import wrap_body_for_encryption
+
+        html = "<html><head></head><body><p>Content</p></body></html>"
+
+        result = wrap_body_for_encryption(html)
+
+        assert "<lockhtml-encrypt>" in result
