@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Osprey Analytics - Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; }
+
+  .layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar { background: #1a1f36; color: #a3a8c3; padding: 1.5rem 0; }
+  .sidebar .logo { padding: 0 1.5rem 1.5rem; border-bottom: 1px solid #2d3352; font-size: 1.1rem; color: #fff; font-weight: 600; }
+  .sidebar nav { margin-top: 1rem; }
+  .sidebar a { display: block; padding: 0.6rem 1.5rem; color: #a3a8c3; text-decoration: none; font-size: 0.9rem; }
+  .sidebar a:hover, .sidebar a.active { background: #252b48; color: #fff; }
+
+  /* Main content */
+  .main { padding: 2rem; }
+  .main h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .main .subtitle { color: #888; margin-bottom: 1.5rem; font-size: 0.9rem; }
+
+  /* Cards grid */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+  .card { background: #fff; border-radius: 8px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .card .label { font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .value { font-size: 1.75rem; font-weight: 700; margin: 0.25rem 0; }
+  .card .change { font-size: 0.8rem; }
+  .card .change.up { color: #22a867; }
+  .card .change.down { color: #e53e3e; }
+
+  /* Sections */
+  .section { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 1.5rem; }
+  .section h2 { font-size: 1.1rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #eee; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th { text-align: left; color: #888; font-weight: 500; padding: 0.5rem 0.75rem; border-bottom: 2px solid #eee; font-size: 0.8rem; text-transform: uppercase; }
+  td { padding: 0.75rem; border-bottom: 1px solid #f0f0f0; }
+  tr:hover { background: #fafafa; }
+
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.75rem; font-weight: 500; }
+  .badge.active { background: #e6f9ee; color: #22a867; }
+  .badge.trial { background: #fff3e0; color: #e68a00; }
+  .badge.churned { background: #fde8e8; color: #e53e3e; }
+
+  /* Financial */
+  .financial-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .fin-item { padding: 0.75rem; background: #f8f9fa; border-radius: 4px; }
+  .fin-item .fin-label { font-size: 0.8rem; color: #888; }
+  .fin-item .fin-value { font-size: 1.2rem; font-weight: 600; margin-top: 0.25rem; }
+
+  /* API Keys */
+  .api-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; background: #f1f3f5; padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+  .api-key .label { font-family: -apple-system, sans-serif; font-size: 0.8rem; color: #888; margin-bottom: 0.25rem; }
+  .api-key code { color: #c7254e; }
+
+  /* User profile */
+  .profile { display: flex; gap: 1rem; align-items: center; padding: 1rem; background: #f8f9fa; border-radius: 6px; }
+  .profile .avatar { width: 48px; height: 48px; border-radius: 50%; background: #4a6cf7; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 1.1rem; }
+  .profile .details { font-size: 0.9rem; }
+  .profile .name { font-weight: 600; }
+  .profile .email { color: #888; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- Sidebar (public) -->
+  <aside class="sidebar">
+    <div class="logo">Osprey Analytics</div>
+    <nav>
+      <a href="#" class="active">Dashboard</a>
+      <a href="#">Projects</a>
+      <a href="#">Analytics</a>
+      <a href="#">Team</a>
+      <a href="#">Settings</a>
+      <a href="#">Billing</a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <h1>Dashboard</h1>
+    <p class="subtitle">Welcome back, Elena. Here's your overview for January 2026.</p>
+
+    <!-- PUBLIC: Summary metrics -->
+    <div class="cards" id="summary-metrics">
+      <div class="card">
+        <div class="label">Active Users</div>
+        <div class="value">12,847</div>
+        <div class="change up">+14.2% from Dec</div>
+      </div>
+      <div class="card">
+        <div class="label">Page Views</div>
+        <div class="value">284K</div>
+        <div class="change up">+8.7% from Dec</div>
+      </div>
+      <div class="card">
+        <div class="label">Avg. Session</div>
+        <div class="value">4m 12s</div>
+        <div class="change down">-3.1% from Dec</div>
+      </div>
+      <div class="card">
+        <div class="label">Bounce Rate</div>
+        <div class="value">34.6%</div>
+        <div class="change up">-2.4% from Dec</div>
+      </div>
+    </div>
+
+    <!-- SENSITIVE: Financial overview -->
+    <div class="section" id="financials">
+      <h2>Financial Overview</h2>
+      <div class="financial-grid">
+        <div class="fin-item">
+          <div class="fin-label">Monthly Revenue</div>
+          <div class="fin-value">$48,230</div>
+        </div>
+        <div class="fin-item">
+          <div class="fin-label">Annual Run Rate</div>
+          <div class="fin-value">$578,760</div>
+        </div>
+        <div class="fin-item">
+          <div class="fin-label">Avg. Revenue / User</div>
+          <div class="fin-value">$3.75</div>
+        </div>
+        <div class="fin-item">
+          <div class="fin-label">Outstanding Invoices</div>
+          <div class="fin-value">$12,450</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SENSITIVE: Customer list -->
+    <div class="section" id="customers">
+      <h2>Recent Customers</h2>
+      <table>
+        <thead>
+          <tr><th>Company</th><th>Plan</th><th>MRR</th><th>Status</th><th>Since</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Meridian Labs</td><td>Enterprise</td><td>$2,400</td><td><span class="badge active">Active</span></td><td>Mar 2024</td></tr>
+          <tr><td>Blue Sparrow Inc.</td><td>Pro</td><td>$89</td><td><span class="badge active">Active</span></td><td>Nov 2025</td></tr>
+          <tr><td>Terraform Dynamics</td><td>Enterprise</td><td>$4,800</td><td><span class="badge active">Active</span></td><td>Jun 2023</td></tr>
+          <tr><td>Cascadia Freight</td><td>Pro</td><td>$89</td><td><span class="badge trial">Trial</span></td><td>Jan 2026</td></tr>
+          <tr><td>Northwave Digital</td><td>Pro</td><td>$0</td><td><span class="badge churned">Churned</span></td><td>Sep 2025</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SENSITIVE: API keys -->
+    <div class="section" id="api-keys">
+      <h2>API Keys</h2>
+      <p style="font-size: 0.85rem; color: #888; margin-bottom: 1rem;">Keep these secret. Rotate every 90 days.</p>
+      <div class="api-key">
+        <div>
+          <div class="label">Production</div>
+          <code>osprey_live_k8Xm9pQ2rT7wYz4nB6vJ3hF1</code>
+        </div>
+      </div>
+      <div class="api-key">
+        <div>
+          <div class="label">Staging</div>
+          <code>osprey_test_aL5nR8wK2mP9xQ4jD7vH3cG6</code>
+        </div>
+      </div>
+      <div class="api-key">
+        <div>
+          <div class="label">Webhook Secret</div>
+          <code>whsec_4f8a2b1c9d6e3f7a0b5c8d2e1f4a7b9c</code>
+        </div>
+      </div>
+    </div>
+
+    <!-- SENSITIVE: Account settings -->
+    <div class="section" id="account">
+      <h2>Account</h2>
+      <div class="profile">
+        <div class="avatar">EM</div>
+        <div class="details">
+          <div class="name">Elena Marchetti</div>
+          <div class="email">elena@ospreyanalytics.io</div>
+          <div style="font-size: 0.8rem; color: #aaa; margin-top: 0.25rem;">Admin &middot; 2FA enabled &middot; Last login: 2 hours ago</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

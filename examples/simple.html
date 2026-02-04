@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lockhtml - Minimal Example</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; color: #333; line-height: 1.6; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: 0.5rem; }
+  h2 { color: #555; margin-top: 2rem; }
+  .public { background: #f0faf0; border-left: 4px solid #4a4; padding: 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+  .secret { background: #fff0f0; border-left: 4px solid #a44; padding: 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+  code { background: #f4f4f4; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #ddd; font-size: 0.85rem; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>Lockhtml Minimal Example</h1>
+<p>This page demonstrates the simplest lockhtml usage. The green sections are public. The red sections should be encrypted.</p>
+
+<h2>Public Section</h2>
+<div class="public">
+  <p>This content is visible to everyone. No encryption needed.</p>
+</div>
+
+<h2>Secret Section</h2>
+<div class="secret" id="secret">
+  <p><strong>Confidential:</strong> The launch date is March 15, 2026. The codename is "Albatross". Do not share externally.</p>
+  <p>Budget allocation: $240,000 for Q1, with $80,000 contingency.</p>
+</div>
+
+<h2>Another Public Section</h2>
+<div class="public">
+  <p>More public content here. This stays visible after encryption.</p>
+</div>
+
+<h2>Another Secret</h2>
+<div class="secret" id="credentials">
+  <p><strong>Service credentials:</strong></p>
+  <pre>DB_HOST=prod-db.internal.example.com
+DB_USER=app_readwrite
+DB_PASS=kX9#mP2$vL7@nQ4
+API_SECRET=sk-proj-a8b2c4d6e8f0a1b3c5d7e9f1</pre>
+</div>
+
+<footer>
+  <p>Try: <code>lockhtml encrypt simple.html -s ".secret"</code></p>
+  <p>Or target individually: <code>lockhtml encrypt simple.html -s "#credentials" -p "ops-team"</code></p>
+</footer>
+
+</body>
+</html>

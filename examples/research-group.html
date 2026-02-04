@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Computational Topology Group - University of Edinburgh</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif; color: #2c2c2c; line-height: 1.65; background: #fff; }
+
+  header { background: #1b3a5c; color: #fff; padding: 2.5rem 2rem; }
+  header h1 { font-size: 1.75rem; font-weight: normal; }
+  header p { color: #a8c4de; margin-top: 0.25rem; font-size: 0.95rem; }
+  nav { background: #244a6e; padding: 0.5rem 2rem; }
+  nav a { color: #c8ddf0; text-decoration: none; margin-right: 1.5rem; font-size: 0.9rem; }
+  nav a:hover { color: #fff; }
+
+  .content { max-width: 850px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  h2 { font-size: 1.3rem; font-weight: normal; color: #1b3a5c; border-bottom: 2px solid #1b3a5c; padding-bottom: 0.3rem; margin: 2rem 0 1rem; }
+  h3 { font-size: 1.05rem; margin-bottom: 0.5rem; color: #333; }
+
+  p { margin-bottom: 0.75rem; }
+  ul { margin-left: 1.5rem; margin-bottom: 1rem; }
+  li { margin-bottom: 0.3rem; }
+
+  /* People */
+  .person { display: flex; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid #eee; }
+  .person:last-child { border-bottom: none; }
+  .person .initials { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; flex-shrink: 0; font-family: sans-serif; font-size: 0.9rem; }
+  .person .bio { font-size: 0.9rem; }
+  .person .bio strong { display: block; font-size: 0.95rem; }
+  .person .bio em { color: #666; font-style: normal; }
+
+  /* Internal notes */
+  .internal {
+    background: #fff8f0;
+    border: 1px solid #f0dcc8;
+    border-radius: 4px;
+    padding: 1.25rem;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .internal h4 { color: #8b5e3c; font-size: 0.95rem; margin-bottom: 0.5rem; }
+
+  /* Preprints */
+  .preprint { padding: 0.75rem 0; border-bottom: 1px solid #eee; }
+  .preprint:last-child { border-bottom: none; }
+  .preprint .title { font-weight: bold; }
+  .preprint .authors { color: #666; font-size: 0.9rem; }
+  .preprint .status { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 3px; font-family: sans-serif; }
+  .preprint .status.published { background: #e8f5e9; color: #2e7d32; }
+  .preprint .status.preprint { background: #e3f2fd; color: #1565c0; }
+  .preprint .status.draft { background: #fff3e0; color: #e65100; }
+
+  /* Funding table */
+  .funding-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 1rem; }
+  .funding-table th { text-align: left; background: #f5f5f5; padding: 0.5rem 0.75rem; font-weight: 600; font-size: 0.85rem; border-bottom: 2px solid #ddd; }
+  .funding-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; }
+
+  footer { background: #f5f5f5; border-top: 1px solid #ddd; padding: 1.5rem 2rem; text-align: center; font-size: 0.8rem; color: #888; margin-top: 3rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Computational Topology Group</h1>
+  <p>School of Mathematics &middot; University of Edinburgh</p>
+</header>
+<nav>
+  <a href="#">Home</a>
+  <a href="#">People</a>
+  <a href="#">Publications</a>
+  <a href="#">Teaching</a>
+  <a href="#">Seminars</a>
+  <a href="#">Contact</a>
+</nav>
+
+<div class="content">
+
+  <h2>About</h2>
+  <p>We study the algebraic and computational structure of topological spaces, with particular emphasis on persistent homology, sheaf theory, and applied topology. Our work spans pure mathematics, algorithm design, and applications to data science and materials science.</p>
+  <p>The group was founded in 2019 and currently comprises 3 faculty, 4 postdocs, and 7 PhD students.</p>
+
+  <!-- PUBLIC: People -->
+  <h2>People</h2>
+
+  <div class="person">
+    <div class="initials" style="background:#1b3a5c;">SK</div>
+    <div class="bio">
+      <strong>Prof. Signe Kolmogorov</strong>
+      <em>Group Lead &middot; Chair of Computational Topology</em>
+      <p>Persistent homology, topological data analysis, sheaf cohomology. Previously at ETH Z&uuml;rich and the Max Planck Institute for Mathematics.</p>
+    </div>
+  </div>
+
+  <div class="person">
+    <div class="initials" style="background:#4a7c59;">TN</div>
+    <div class="bio">
+      <strong>Dr. Tomasz Nowak</strong>
+      <em>Lecturer</em>
+      <p>Discrete Morse theory, simplicial complexes, computational geometry. Interested in efficient algorithms for topological invariants.</p>
+    </div>
+  </div>
+
+  <div class="person">
+    <div class="initials" style="background:#7c4a6e;">AL</div>
+    <div class="bio">
+      <strong>Dr. Amira Lakhdari</strong>
+      <em>Postdoctoral Researcher (EPSRC Fellowship)</em>
+      <p>Mapper algorithms, multi-parameter persistence, applications to neuroscience data. PhD from Paris-Saclay, 2023.</p>
+    </div>
+  </div>
+
+  <!-- INTERNAL: Staff notes and admin -->
+  <div class="internal" id="staff-notes">
+    <h4>Internal: Staffing Notes</h4>
+    <ul>
+      <li>Tomasz&rsquo;s contract renewal due April 2026 &mdash; strong case, begin paperwork in Feb</li>
+      <li>Amira interviewing at Cambridge (Peterhouse fellowship) &mdash; consider retention package</li>
+      <li>PhD recruitment: 12 applications received for 2 funded positions. Shortlist meeting Feb 14.</li>
+      <li>Budget reallocation: &pound;8,400 from travel fund to equipment (cluster GPU nodes)</li>
+    </ul>
+  </div>
+
+  <!-- PUBLIC: Selected publications -->
+  <h2>Selected Publications</h2>
+
+  <div class="preprint">
+    <div class="title">Stability of Multi-Parameter Persistence Modules under Noise</div>
+    <div class="authors">S. Kolmogorov, A. Lakhdari, J. Chen &middot; <span class="status published">J. Applied Topology, 2025</span></div>
+  </div>
+
+  <div class="preprint">
+    <div class="title">Efficient Computation of Persistent Homology via Discrete Morse Reduction</div>
+    <div class="authors">T. Nowak, S. Kolmogorov &middot; <span class="status published">SIAM J. Computing, 2024</span></div>
+  </div>
+
+  <div class="preprint">
+    <div class="title">Sheaf-Theoretic Approaches to Sensor Network Coverage</div>
+    <div class="authors">A. Lakhdari, M. Robinson &middot; <span class="status preprint">arXiv:2601.04821</span></div>
+  </div>
+
+  <!-- INTERNAL: Unpublished drafts -->
+  <div class="internal" id="unpublished-work">
+    <h4>Internal: Unpublished Drafts &amp; Works in Progress</h4>
+    <div class="preprint">
+      <div class="title">On the Homotopy Type of Configuration Spaces of Metric Graphs</div>
+      <div class="authors">S. Kolmogorov, T. Nowak &middot; <span class="status draft">Draft - do not circulate</span></div>
+      <p style="font-size:0.85rem; color:#666; margin-top:0.25rem;">Contains the new spectral sequence argument. Key result: Theorem 4.7 gives a complete characterization for trees. Reviewer 2 concerns addressed in v3.</p>
+    </div>
+    <div class="preprint">
+      <div class="title">Persistent Homology of Financial Time Series: A Cautionary Tale</div>
+      <div class="authors">A. Lakhdari, E. Voss &middot; <span class="status draft">Draft - submitted to NeurIPS 2026</span></div>
+      <p style="font-size:0.85rem; color:#666; margin-top:0.25rem;">Negative result. Shows that several published TDA-finance results fail to replicate. Controversial &mdash; Signe suggests we wait for reviews before any talks.</p>
+    </div>
+  </div>
+
+  <!-- INTERNAL: Funding details -->
+  <div class="internal" id="funding">
+    <h4>Internal: Grant Portfolio</h4>
+    <table class="funding-table">
+      <thead>
+        <tr><th>Grant</th><th>Funder</th><th>Amount</th><th>Period</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Topological Methods in Materials Science</td><td>EPSRC</td><td>&pound;842,000</td><td>2024&ndash;2028</td><td>Active</td></tr>
+        <tr><td>Computational Sheaf Theory</td><td>Leverhulme Trust</td><td>&pound;195,000</td><td>2025&ndash;2027</td><td>Active</td></tr>
+        <tr><td>TDA for Neuroscience</td><td>Wellcome Trust</td><td>&pound;310,000</td><td>2025&ndash;2028</td><td>Active</td></tr>
+        <tr><td>Persistent Homology at Scale</td><td>EPSRC</td><td>&pound;520,000</td><td>2026&ndash;2029</td><td>Pending</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:0.85rem; color:#666;">Total active funding: &pound;1,347,000. Overhead rate: 48%. PI discretionary: &pound;24,600 remaining.</p>
+  </div>
+
+  <h2>Contact</h2>
+  <p>James Clerk Maxwell Building, Room 5325<br>
+  University of Edinburgh<br>
+  Peter Guthrie Tait Road<br>
+  Edinburgh EH9 3FD</p>
+  <p>General enquiries: <a href="mailto:comptop@ed.ac.uk">comptop@ed.ac.uk</a></p>
+
+</div>
+
+<footer>
+  &copy; 2026 Computational Topology Group. University of Edinburgh is a registered charity: SC005336.
+</footer>
+
+</body>
+</html>

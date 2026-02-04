@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Careful Observer - Blog</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #333; line-height: 1.7; background: #fafaf8; }
+  a { color: #8b4513; }
+
+  header { background: #2c2c2c; color: #eee; padding: 2rem; text-align: center; }
+  header h1 { font-size: 2rem; letter-spacing: 0.05em; }
+  header p { color: #aaa; margin-top: 0.25rem; }
+  nav { background: #3a3a3a; padding: 0.75rem; text-align: center; }
+  nav a { color: #ccc; text-decoration: none; margin: 0 1rem; font-size: 0.95rem; }
+  nav a:hover { color: #fff; }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 2rem 1rem; }
+
+  article { background: #fff; border: 1px solid #e0ddd5; border-radius: 4px; padding: 2rem; margin-bottom: 2rem; }
+  article h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+  article .meta { color: #888; font-size: 0.85rem; margin-bottom: 1rem; }
+  article p { margin-bottom: 1rem; }
+
+  .members-only {
+    background: #fffbf0;
+    border-left: 4px solid #d4a017;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .members-only h3 { font-size: 1.1rem; color: #8b6914; margin-bottom: 0.5rem; }
+
+  .author-bio {
+    display: flex; gap: 1rem; align-items: flex-start;
+    background: #f5f5f0; padding: 1.5rem; border-radius: 4px; margin-top: 1.5rem;
+  }
+  .author-bio .avatar { width: 64px; height: 64px; border-radius: 50%; background: #d4a017; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.5rem; font-weight: bold; }
+  .author-bio .info h4 { margin-bottom: 0.25rem; }
+  .author-bio .info p { font-size: 0.9rem; color: #666; margin: 0; }
+  .author-bio .contact { font-size: 0.85rem; color: #888; margin-top: 0.5rem; }
+
+  .sidebar { background: #fff; border: 1px solid #e0ddd5; border-radius: 4px; padding: 1.5rem; margin-bottom: 2rem; }
+  .sidebar h3 { font-size: 1.1rem; margin-bottom: 1rem; border-bottom: 2px solid #d4a017; padding-bottom: 0.5rem; }
+  .sidebar ul { list-style: none; }
+  .sidebar li { padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+
+  #subscriber-stats { background: #f0f8ff; padding: 1rem; border-radius: 4px; margin-top: 1rem; font-size: 0.9rem; }
+  #subscriber-stats dt { font-weight: bold; color: #555; }
+  #subscriber-stats dd { margin-bottom: 0.5rem; color: #333; }
+
+  footer { background: #2c2c2c; color: #999; padding: 2rem; text-align: center; font-size: 0.85rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>The Careful Observer</h1>
+  <p>Notes on craft, code, and quiet persistence</p>
+</header>
+
+<nav>
+  <a href="#">Home</a>
+  <a href="#">Archive</a>
+  <a href="#">About</a>
+  <a href="#">Subscribe</a>
+</nav>
+
+<div class="container">
+
+  <!-- PUBLIC: Recent post -->
+  <article>
+    <h2>On the Merits of Slow Software</h2>
+    <div class="meta">January 28, 2026 &middot; 6 min read</div>
+    <p>There is a particular satisfaction in software that does not rush. It does not auto-update at inconvenient moments. It does not suggest you upgrade to a plan you did not ask about. It loads, it works, it waits.</p>
+    <p>I have been thinking about this after spending a week with a text editor written in 1991. The experience was not nostalgic&mdash;it was clarifying. The editor did exactly what I asked, nothing more, and the absence of surprise was itself a feature.</p>
+    <p>We have confused capability with quality. A tool that does forty things poorly is not superior to one that does three things well. The Unix philosophy understood this. Somewhere along the way, we forgot.</p>
+
+    <!-- MEMBERS-ONLY: Extended analysis -->
+    <div class="members-only">
+      <h3>Extended Analysis (Members Only)</h3>
+      <p>The economics of slow software are counterintuitive. Projects like SQLite, TeX, and Plan 9 demonstrate that long-term maintenance costs drop dramatically when the initial design is allowed to mature without market pressure.</p>
+      <p>My rough calculations suggest the total cost of ownership for "boring" software is 3-5x lower over a decade. The detailed spreadsheet and methodology are in the members repository.</p>
+    </div>
+
+    <div class="author-bio">
+      <div class="avatar">R</div>
+      <div class="info">
+        <h4>R. Halloway</h4>
+        <p>Writes about software craft, epistemology, and the odd intersection of the two. Currently building tools nobody asked for.</p>
+        <div class="contact">r.halloway@example.com &middot; Portland, OR</div>
+      </div>
+    </div>
+  </article>
+
+  <!-- PUBLIC: Older post -->
+  <article>
+    <h2>Three Books That Changed How I Debug</h2>
+    <div class="meta">January 15, 2026 &middot; 4 min read</div>
+    <p>Debugging is not a technical skill. Or rather, it is not <em>only</em> a technical skill. It is an epistemological practice&mdash;a structured way of asking "what do I actually know, and how do I know it?"</p>
+    <p>These three books reframed my approach entirely:</p>
+    <ol style="margin-left: 1.5rem; margin-bottom: 1rem;">
+      <li><strong>How Doctors Think</strong> by Jerome Groopman</li>
+      <li><strong>The Art and Craft of Problem Solving</strong> by Paul Zeitz</li>
+      <li><strong>Seeing Like a State</strong> by James C. Scott</li>
+    </ol>
+    <p>The connection between these may not be obvious. Let me explain.</p>
+
+    <!-- MEMBERS-ONLY: Detailed notes -->
+    <div class="members-only">
+      <h3>Detailed Reading Notes (Members Only)</h3>
+      <p>For each book, I've prepared chapter-by-chapter notes mapping concepts to debugging scenarios I've encountered professionally. The Groopman book alone gave me a framework for "diagnostic timeouts" that I now use in every incident response.</p>
+      <p>I've also included a 12-page PDF of my personal debugging checklist, refined over 8 years of production systems work.</p>
+    </div>
+  </article>
+
+  <!-- SIDEBAR: Analytics and subscriber info -->
+  <aside class="sidebar">
+    <h3>Newsletter Info</h3>
+    <p style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;">Published every other Tuesday. No tracking pixels, no affiliate links.</p>
+    <ul>
+      <li>Next issue: February 10, 2026</li>
+      <li>Topic: "Why I Stopped Using Metrics"</li>
+      <li>Guest: Ada Torvalds (not related)</li>
+    </ul>
+
+    <div id="subscriber-stats">
+      <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Subscriber Analytics</h4>
+      <dl>
+        <dt>Total subscribers</dt>
+        <dd>4,217</dd>
+        <dt>Open rate (last 6 issues)</dt>
+        <dd>68.3%</dd>
+        <dt>Revenue (Jan 2026)</dt>
+        <dd>$2,814.50</dd>
+        <dt>Churn rate</dt>
+        <dd>1.2%</dd>
+      </dl>
+    </div>
+  </aside>
+
+</div>
+
+<footer>
+  <p>&copy; 2026 The Careful Observer. Built with patience and plain HTML.</p>
+</footer>
+
+</body>
+</html>

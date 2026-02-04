@@ -1,0 +1,581 @@
+"""Tests for lockhtml.crypto module."""
+
+import base64
+import json
+import os
+
+import pytest
+
+from lockhtml.crypto import (
+    ITERATIONS,
+    SALT_LENGTH,
+    LockhtmlError,
+    _unwrap_key,
+    _wrap_key,
+    content_hash,
+    decrypt,
+    encrypt,
+    generate_salt,
+    hex_to_salt,
+    rewrap_keys,
+    salt_to_hex,
+)
+
+
+class TestEncryptDecrypt:
+    """Tests for encrypt/decrypt functions."""
+
+    def test_basic_roundtrip(self):
+        """Test encryption followed by decryption returns original."""
+        plaintext = "Hello, World!"
+        password = "test-password"
+
+        ciphertext = encrypt(plaintext, password=password)
+        content, meta = decrypt(ciphertext, password)
+
+        assert content == plaintext
+
+    def test_empty_string(self):
+        """Test encryption of empty string."""
+        plaintext = ""
+        password = "test-password"
+
+        ciphertext = encrypt(plaintext, password=password)
+        content, meta = decrypt(ciphertext, password)
+
+        assert content == plaintext
+
+    def test_unicode_content(self):
+        """Test encryption of unicode content."""
+        plaintext = "Hello 世界! 🔒 émoji"
+        password = "test-password"
+
+        ciphertext = encrypt(plaintext, password=password)
+        content, meta = decrypt(ciphertext, password)
+
+        assert content == plaintext
+
+    def test_large_content(self):
+        """Test encryption of large content."""
+        plaintext = "x" * 100000
+        password = "test-password"
+
+        ciphertext = encrypt(plaintext, password=password)
+        content, meta = decrypt(ciphertext, password)
+
+        assert content == plaintext
+
+    def test_html_content(self):
+        """Test encryption of HTML content."""
+        plaintext = """
+        <div class="content">
+            <h1>Secret Title</h1>
+            <p>Secret paragraph with <strong>formatting</strong>.</p>
+        </div>
+        """
+        password = "test-password"
+
+        ciphertext = encrypt(plaintext, password=password)
+        content, meta = decrypt(ciphertext, password)
+
+        assert content == plaintext
+
+    def test_wrong_password(self):
+        """Test decryption with wrong password fails."""
+        plaintext = "Secret content"
+        password = "correct-password"
+        wrong_password = "wrong-password"
+
+        ciphertext = encrypt(plaintext, password=password)
+
+        with pytest.raises(LockhtmlError, match="wrong password"):
+            decrypt(ciphertext, wrong_password)
+
+    def test_different_ciphertext_each_time(self):
+        """Test that same plaintext produces different ciphertext."""
+        plaintext = "Same content"
+        password = "test-password"
+
+        ciphertext1 = encrypt(plaintext, password=password)
+        ciphertext2 = encrypt(plaintext, password=password)
+
+        # Different due to random IV
+        assert ciphertext1 != ciphertext2
+
+        # But both decrypt correctly
+        content1, _ = decrypt(ciphertext1, password)
+        content2, _ = decrypt(ciphertext2, password)
+        assert content1 == plaintext
+        assert content2 == plaintext
+
+    def test_with_explicit_salt(self):
+        """Test encryption with explicit salt."""
+        plaintext = "Secret content"
+        password = "test-password"
+        salt = generate_salt()
+
+        ciphertext = encrypt(plaintext, password=password, salt=salt)
+        content, meta = decrypt(ciphertext, password)
+
+        assert content == plaintext
+
+        # Verify salt is in payload
+        decoded = json.loads(base64.b64decode(ciphertext))
+        assert base64.b64decode(decoded["salt"]) == salt
+
+    def test_invalid_salt_length(self):
+        """Test encryption with wrong salt length fails."""
+        with pytest.raises(LockhtmlError, match="Salt must be"):
+            encrypt("test", password="password", salt=b"short")
+
+
+class TestCiphertextFormat:
+    """Tests for ciphertext format validation."""
+
+    def test_ciphertext_is_base64(self):
+        """Test that ciphertext is valid base64."""
+        ciphertext = encrypt("test", password="password")
+
+        # Should not raise
+        decoded = base64.b64decode(ciphertext)
+        assert len(decoded) > 0
+
+    def test_ciphertext_contains_json(self):
+        """Test that ciphertext contains valid JSON."""
+        ciphertext = encrypt("test", password="password")
+        decoded = base64.b64decode(ciphertext)
+
+        data = json.loads(decoded)
+        assert isinstance(data, dict)
+
+    def test_ciphertext_has_required_fields(self):
+        """Test that ciphertext has all required fields."""
+        ciphertext = encrypt("test", password="password")
+        decoded = base64.b64decode(ciphertext)
+        data = json.loads(decoded)
+
+        assert data["v"] == 2
+        assert data["alg"] == "aes-256-gcm"
+        assert data["kdf"] == "pbkdf2-sha256"
+        assert data["iter"] == ITERATIONS
+        assert "salt" in data
+        assert "iv" in data
+        assert "ct" in data
+        assert "keys" in data
+        assert isinstance(data["keys"], list)
+        assert len(data["keys"]) >= 1
+
+    def test_invalid_base64_fails(self):
+        """Test decryption of invalid base64 fails."""
+        with pytest.raises(LockhtmlError, match="Invalid base64"):
+            decrypt("not-valid-base64!!!", "password")
+
+    def test_invalid_json_fails(self):
+        """Test decryption of invalid JSON fails."""
+        invalid = base64.b64encode(b"not json").decode()
+        with pytest.raises(LockhtmlError, match="Invalid JSON"):
+            decrypt(invalid, "password")
+
+    def test_missing_version_fails(self):
+        """Test decryption with missing version fails."""
+        payload = {"salt": "AA==", "iv": "AA==", "ct": "AA==", "keys": []}
+        invalid = base64.b64encode(json.dumps(payload).encode()).decode()
+        with pytest.raises(LockhtmlError, match="Unsupported format version"):
+            decrypt(invalid, "password")
+
+    def test_wrong_version_fails(self):
+        """Test decryption with wrong version fails."""
+        payload = {"v": 99, "salt": "AA==", "iv": "AA==", "ct": "AA==", "keys": []}
+        invalid = base64.b64encode(json.dumps(payload).encode()).decode()
+        with pytest.raises(LockhtmlError, match="Unsupported format version"):
+            decrypt(invalid, "password")
+
+    def test_missing_fields_fail(self):
+        """Test decryption with missing fields fails."""
+        for missing in ["salt", "iv", "ct", "keys"]:
+            payload = {
+                "v": 2,
+                "salt": "AA==",
+                "iv": "AA==",
+                "ct": "AA==",
+                "keys": [{"iv": "AA==", "ct": "AA=="}],
+            }
+            del payload[missing]
+            invalid = base64.b64encode(json.dumps(payload).encode()).decode()
+            with pytest.raises(
+                LockhtmlError, match=f"Missing required field: {missing}"
+            ):
+                decrypt(invalid, "password")
+
+
+class TestSaltFunctions:
+    """Tests for salt utility functions."""
+
+    def test_generate_salt_length(self):
+        """Test generated salt has correct length."""
+        salt = generate_salt()
+        assert len(salt) == SALT_LENGTH
+
+    def test_generate_salt_random(self):
+        """Test generated salts are different."""
+        salt1 = generate_salt()
+        salt2 = generate_salt()
+        assert salt1 != salt2
+
+    def test_salt_to_hex(self):
+        """Test salt to hex conversion."""
+        salt = generate_salt()
+        hex_str = salt_to_hex(salt)
+
+        assert len(hex_str) == SALT_LENGTH * 2
+        assert all(c in "0123456789abcdef" for c in hex_str)
+
+    def test_hex_to_salt(self):
+        """Test hex to salt conversion."""
+        original = generate_salt()
+        hex_str = salt_to_hex(original)
+        restored = hex_to_salt(hex_str)
+
+        assert restored == original
+
+    def test_hex_to_salt_invalid(self):
+        """Test invalid hex string fails."""
+        with pytest.raises(LockhtmlError, match="Invalid hex"):
+            hex_to_salt("not-hex!")
+
+    def test_hex_to_salt_wrong_length(self):
+        """Test wrong length hex string fails."""
+        with pytest.raises(LockhtmlError, match="must be"):
+            hex_to_salt("0123")  # Too short
+
+
+class TestContentHash:
+    """Tests for content_hash() function for integrity verification."""
+
+    def test_hash_length(self):
+        """Hash output is 32 hex characters (128 bits)."""
+        result = content_hash("test content")
+        assert len(result) == 32
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_hash_deterministic(self):
+        """Same content produces same hash."""
+        content = "Hello, world!"
+        hash1 = content_hash(content)
+        hash2 = content_hash(content)
+        assert hash1 == hash2
+
+    def test_hash_different_content(self):
+        """Different content produces different hashes."""
+        hash1 = content_hash("content A")
+        hash2 = content_hash("content B")
+        assert hash1 != hash2
+
+    def test_hash_empty_content(self):
+        """Empty string has a valid hash."""
+        result = content_hash("")
+        assert len(result) == 32
+        # SHA-256 of empty string, truncated to 16 bytes
+        assert result == "e3b0c44298fc1c149afbf4c8996fb924"
+
+    def test_hash_unicode_content(self):
+        """Unicode content produces valid hash."""
+        result = content_hash("こんにちは世界 🔐")
+        assert len(result) == 32
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_hash_html_content(self):
+        """HTML content produces valid hash."""
+        html = "<div><p>Secret content</p></div>"
+        result = content_hash(html)
+        assert len(result) == 32
+
+    def test_hash_whitespace_sensitive(self):
+        """Hash is sensitive to whitespace differences."""
+        hash1 = content_hash("content")
+        hash2 = content_hash("content ")
+        hash3 = content_hash(" content")
+        assert hash1 != hash2
+        assert hash1 != hash3
+        assert hash2 != hash3
+
+
+class TestMultiUser:
+    """Tests for multi-user encryption and decryption."""
+
+    def test_multiuser_encrypt_decrypt(self):
+        """Encrypt with multiple users and decrypt as each user."""
+        plaintext = "Shared secret content"
+        users = {"alice": "pw-a", "bob": "pw-b"}
+
+        ciphertext = encrypt(plaintext, users=users)
+
+        # Both users can decrypt
+        content_a, _ = decrypt(ciphertext, "pw-a", username="alice")
+        assert content_a == plaintext
+
+        content_b, _ = decrypt(ciphertext, "pw-b", username="bob")
+        assert content_b == plaintext
+
+    def test_multiuser_wrong_username_fails(self):
+        """Decrypt with wrong username should fail."""
+        plaintext = "Secret"
+        users = {"alice": "pw-a", "bob": "pw-b"}
+
+        ciphertext = encrypt(plaintext, users=users)
+
+        with pytest.raises(LockhtmlError, match="wrong password"):
+            decrypt(ciphertext, "pw-a", username="charlie")
+
+    def test_multiuser_wrong_password_fails(self):
+        """Decrypt with right username but wrong password should fail."""
+        plaintext = "Secret"
+        users = {"alice": "pw-a"}
+
+        ciphertext = encrypt(plaintext, users=users)
+
+        with pytest.raises(LockhtmlError, match="wrong password"):
+            decrypt(ciphertext, "wrong-pw", username="alice")
+
+    def test_cannot_specify_both_password_and_users(self):
+        """Specifying both password and users should raise LockhtmlError."""
+        with pytest.raises(LockhtmlError, match="Cannot specify both"):
+            encrypt("test", password="pw", users={"alice": "pw-a"})
+
+    def test_must_specify_password_or_users(self):
+        """Specifying neither password nor users should raise LockhtmlError."""
+        with pytest.raises(LockhtmlError, match="Must specify either"):
+            encrypt("test")
+
+    def test_shared_salt_across_key_blobs(self):
+        """All key blobs in a multi-user payload share the same salt."""
+        users = {"alice": "pw-a", "bob": "pw-b", "charlie": "pw-c"}
+        ciphertext = encrypt("test", users=users)
+
+        data = json.loads(base64.b64decode(ciphertext))
+
+        # There is a single salt at the top level, shared by all key blobs
+        assert "salt" in data
+        assert len(data["keys"]) == 3
+        # Key blobs themselves don't have separate salt fields
+        for key_blob in data["keys"]:
+            assert "salt" not in key_blob
+
+    def test_unique_wrap_ivs(self):
+        """Each key blob should have a different IV."""
+        users = {"alice": "pw-a", "bob": "pw-b", "charlie": "pw-c"}
+        ciphertext = encrypt("test", users=users)
+
+        data = json.loads(base64.b64decode(ciphertext))
+        ivs = [blob["iv"] for blob in data["keys"]]
+
+        # All IVs should be unique
+        assert len(set(ivs)) == len(ivs)
+
+
+class TestMetadata:
+    """Tests for metadata support in encrypt/decrypt."""
+
+    def test_metadata_roundtrip(self):
+        """Encrypt with metadata and verify it survives decryption."""
+        plaintext = "Content with metadata"
+        meta = {"key": "value"}
+
+        ciphertext = encrypt(plaintext, password="pw", meta=meta)
+        content, returned_meta = decrypt(ciphertext, "pw")
+
+        assert content == plaintext
+        assert returned_meta == meta
+
+    def test_no_metadata_returns_none(self):
+        """Encrypt without meta param returns (content, None) on decrypt."""
+        plaintext = "No metadata here"
+
+        ciphertext = encrypt(plaintext, password="pw")
+        content, returned_meta = decrypt(ciphertext, "pw")
+
+        assert content == plaintext
+        assert returned_meta is None
+
+    def test_metadata_with_nested_dict(self):
+        """Encrypt with nested metadata dict."""
+        plaintext = "Nested metadata"
+        meta = {
+            "author": "alice",
+            "tags": ["secret", "important"],
+            "settings": {"level": 3, "enabled": True},
+        }
+
+        ciphertext = encrypt(plaintext, password="pw", meta=meta)
+        content, returned_meta = decrypt(ciphertext, "pw")
+
+        assert content == plaintext
+        assert returned_meta == meta
+
+    def test_metadata_does_not_affect_content(self):
+        """Same content with different meta should decrypt to same content."""
+        plaintext = "Same content"
+
+        ct1 = encrypt(plaintext, password="pw", meta={"a": 1})
+        ct2 = encrypt(plaintext, password="pw", meta={"b": 2})
+
+        content1, meta1 = decrypt(ct1, "pw")
+        content2, meta2 = decrypt(ct2, "pw")
+
+        assert content1 == content2 == plaintext
+        assert meta1 == {"a": 1}
+        assert meta2 == {"b": 2}
+
+
+class TestKeyWrapping:
+    """Tests for low-level key wrapping functions."""
+
+    def test_wrap_unwrap_roundtrip(self):
+        """Wrap and unwrap a key, verify roundtrip."""
+        cek = os.urandom(32)
+        wrapping_key = os.urandom(32)
+
+        iv, ct = _wrap_key(cek, wrapping_key)
+        unwrapped = _unwrap_key(iv, ct, wrapping_key)
+
+        assert unwrapped == cek
+
+    def test_unwrap_with_wrong_key_returns_none(self):
+        """Unwrapping with wrong wrapping key returns None."""
+        cek = os.urandom(32)
+        wrapping_key = os.urandom(32)
+        wrong_key = os.urandom(32)
+
+        iv, ct = _wrap_key(cek, wrapping_key)
+        result = _unwrap_key(iv, ct, wrong_key)
+
+        assert result is None
+
+
+class TestRewrapKeys:
+    """Tests for rewrap_keys() function."""
+
+    def test_rewrap_add_user(self):
+        """Encrypt with one user, rewrap to add another user."""
+        plaintext = "shared secret"
+        ciphertext = encrypt(plaintext, users={"alice": "pw-a"})
+
+        # Rewrap to add bob
+        rewrapped = rewrap_keys(
+            ciphertext,
+            old_users={"alice": "pw-a"},
+            new_users={"alice": "pw-a", "bob": "pw-b"},
+        )
+
+        # Both can decrypt
+        content_a, _ = decrypt(rewrapped, "pw-a", username="alice")
+        assert content_a == plaintext
+
+        content_b, _ = decrypt(rewrapped, "pw-b", username="bob")
+        assert content_b == plaintext
+
+    def test_rewrap_remove_user(self):
+        """Encrypt with two users, rewrap to remove one."""
+        plaintext = "shared secret"
+        ciphertext = encrypt(plaintext, users={"alice": "pw-a", "bob": "pw-b"})
+
+        # Rewrap with only alice
+        rewrapped = rewrap_keys(
+            ciphertext,
+            old_users={"alice": "pw-a"},
+            new_users={"alice": "pw-a"},
+        )
+
+        # Alice can still decrypt
+        content_a, _ = decrypt(rewrapped, "pw-a", username="alice")
+        assert content_a == plaintext
+
+        # Bob can no longer decrypt
+        with pytest.raises(LockhtmlError, match="wrong password"):
+            decrypt(rewrapped, "pw-b", username="bob")
+
+    def test_rewrap_change_password(self):
+        """Encrypt with one user, rewrap to change their password."""
+        plaintext = "secret"
+        ciphertext = encrypt(plaintext, users={"alice": "pw1"})
+
+        # Rewrap with new password for alice
+        rewrapped = rewrap_keys(
+            ciphertext,
+            old_users={"alice": "pw1"},
+            new_users={"alice": "pw2"},
+        )
+
+        # New password works
+        content, _ = decrypt(rewrapped, "pw2", username="alice")
+        assert content == plaintext
+
+        # Old password no longer works
+        with pytest.raises(LockhtmlError, match="wrong password"):
+            decrypt(rewrapped, "pw1", username="alice")
+
+    def test_rewrap_single_password_to_users(self):
+        """Encrypt with single password, rewrap to multi-user."""
+        plaintext = "migrating to multi-user"
+        ciphertext = encrypt(plaintext, password="pw")
+
+        # Rewrap from single password to users
+        rewrapped = rewrap_keys(
+            ciphertext,
+            old_password="pw",
+            new_users={"alice": "pw-a"},
+        )
+
+        # Alice can decrypt
+        content, _ = decrypt(rewrapped, "pw-a", username="alice")
+        assert content == plaintext
+
+        # Old single password no longer works
+        with pytest.raises(LockhtmlError, match="wrong password"):
+            decrypt(rewrapped, "pw")
+
+    def test_rekey_generates_new_ciphertext(self):
+        """Rekey generates new CEK, content still decryptable but ciphertext changed."""
+        plaintext = "rekey me"
+        ciphertext = encrypt(plaintext, password="pw")
+
+        # Rewrap with rekey
+        rewrapped = rewrap_keys(
+            ciphertext,
+            old_password="pw",
+            new_password="pw",
+            rekey=True,
+        )
+
+        # Content still decryptable
+        content, _ = decrypt(rewrapped, "pw")
+        assert content == plaintext
+
+        # But the ciphertext payload changed (new CEK, new IV, new ct)
+        orig_data = json.loads(base64.b64decode(ciphertext))
+        new_data = json.loads(base64.b64decode(rewrapped))
+        assert orig_data["ct"] != new_data["ct"]
+        assert orig_data["iv"] != new_data["iv"]
+
+    def test_rewrap_requires_valid_old_credentials(self):
+        """Rewrap with wrong old credentials should raise LockhtmlError."""
+        ciphertext = encrypt("secret", password="correct-pw")
+
+        with pytest.raises(LockhtmlError, match="Cannot recover CEK"):
+            rewrap_keys(
+                ciphertext,
+                old_password="wrong-pw",
+                new_password="new-pw",
+            )
+
+    def test_rewrap_requires_new_target(self):
+        """Rewrap without new_users or new_password should raise LockhtmlError."""
+        ciphertext = encrypt("secret", password="pw")
+
+        with pytest.raises(
+            LockhtmlError, match="Must provide new_users or new_password"
+        ):
+            rewrap_keys(
+                ciphertext,
+                old_password="pw",
+            )
