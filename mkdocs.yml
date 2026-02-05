@@ -1,7 +1,7 @@
 site_name: pagevault
 site_description: Password-protect semi-private content on static sites
 repo_url: https://github.com/queelius/pagevault
-repo_name: pagevault
+repo_name: queelius/pagevault
 docs_dir: docs
 site_dir: site
 
