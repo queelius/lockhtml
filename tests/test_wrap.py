@@ -1,4 +1,4 @@
-"""Tests for lockhtml.wrap module."""
+"""Tests for pagevault.wrap module."""
 
 import base64
 from pathlib import Path
@@ -7,10 +7,10 @@ import pytest
 from bs4 import BeautifulSoup
 from click.testing import CliRunner
 
-from lockhtml.cli import main
-from lockhtml.config import CONFIG_FILENAME
-from lockhtml.crypto import LockhtmlError, decrypt
-from lockhtml.wrap import (
+from pagevault.cli import main
+from pagevault.config import CONFIG_FILENAME
+from pagevault.crypto import PagevaultError, decrypt
+from pagevault.wrap import (
     _get_marked_js,
     _get_renderer_js,
     _get_site_renderer_js,
@@ -119,7 +119,7 @@ class TestWrapFile:
 
         # Extract encrypted payload
         soup = BeautifulSoup(content, "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
 
         # Decrypt
@@ -137,7 +137,7 @@ class TestWrapFile:
 
     def test_wrap_nonexistent_file(self, tmp_path):
         """Test wrapping a nonexistent file raises error."""
-        with pytest.raises(LockhtmlError, match="File not found"):
+        with pytest.raises(PagevaultError, match="File not found"):
             wrap_file(tmp_path / "nonexistent.txt", password="pw")
 
     def test_wrap_with_content_hash(self, tmp_path):
@@ -165,7 +165,7 @@ class TestWrapFile:
 
         # Both users should be able to decrypt
         soup = BeautifulSoup(content, "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
 
         text_a, _ = decrypt(encrypted, "pw-a", username="alice")
@@ -190,8 +190,8 @@ class TestWrapFile:
         assert "renderFile" in content
 
         # Should have CSS
-        assert ".lockhtml-container" in content
-        assert ".lockhtml-button" in content
+        assert ".pagevault-container" in content
+        assert ".pagevault-button" in content
 
     def test_wrap_large_file(self, tmp_path):
         """Test wrapping a larger file."""
@@ -203,7 +203,7 @@ class TestWrapFile:
 
         # Verify decryptability
         soup = BeautifulSoup(output.read_text(), "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
         plaintext, meta = decrypt(encrypted, "pw")
         decoded = base64.b64decode(plaintext)
@@ -276,7 +276,7 @@ class TestWrapSite:
 
         # Extract and decrypt
         soup = BeautifulSoup(output.read_text(), "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
 
         plaintext, meta = decrypt(encrypted, "pw")
@@ -315,7 +315,7 @@ class TestWrapSite:
 
         # Verify all files in metadata
         soup = BeautifulSoup(output.read_text(), "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
         _, meta = decrypt(encrypted, "pw")
 
@@ -329,7 +329,7 @@ class TestWrapSite:
         site_dir.mkdir()
         (site_dir / "page.html").write_text("<html>Page</html>")
 
-        with pytest.raises(LockhtmlError, match="Entry point"):
+        with pytest.raises(PagevaultError, match="Entry point"):
             wrap_site(site_dir, password="pw", entry="index.html")
 
     def test_site_empty_directory(self, tmp_path):
@@ -337,12 +337,12 @@ class TestWrapSite:
         site_dir = tmp_path / "empty"
         site_dir.mkdir()
 
-        with pytest.raises(LockhtmlError, match="empty"):
+        with pytest.raises(PagevaultError, match="empty"):
             wrap_site(site_dir, password="pw")
 
     def test_site_nonexistent_directory(self, tmp_path):
         """Test error on nonexistent directory."""
-        with pytest.raises(LockhtmlError, match="Directory not found"):
+        with pytest.raises(PagevaultError, match="Directory not found"):
             wrap_site(tmp_path / "nope", password="pw")
 
     def test_site_includes_jszip_shim(self, tmp_path):
@@ -355,7 +355,7 @@ class TestWrapSite:
         content = output.read_text()
 
         assert "ZipReader" in content
-        assert "__lockhtml_renderSite" in content
+        assert "__pagevault_renderSite" in content
         assert "rewriteUrls" in content
 
     def test_site_multiuser(self, tmp_path):
@@ -374,7 +374,7 @@ class TestWrapSite:
 
         # Both users can decrypt
         soup = BeautifulSoup(content, "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
 
         _, meta_a = decrypt(encrypted, "pw-a", username="alice")
@@ -384,7 +384,7 @@ class TestWrapSite:
 
 
 class TestWrapFileCli:
-    """Tests for 'lockhtml wrap file' CLI command."""
+    """Tests for 'pagevault lock' CLI command with non-HTML files."""
 
     @pytest.fixture
     def runner(self):
@@ -398,7 +398,7 @@ salt: "0123456789abcdef0123456789abcdef"
 """
 
     def test_wrap_file_basic(self, runner, tmp_path, sample_config):
-        """Test basic wrap file command."""
+        """Test basic wrap file command (now using lock for non-HTML)."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("Hello!")
 
@@ -410,8 +410,7 @@ salt: "0123456789abcdef0123456789abcdef"
         result = runner.invoke(
             main,
             [
-                "wrap",
-                "file",
+                "lock",
                 str(test_file),
                 "-c",
                 str(config_path),
@@ -425,7 +424,7 @@ salt: "0123456789abcdef0123456789abcdef"
         assert output.exists()
 
     def test_wrap_file_with_password(self, runner, tmp_path):
-        """Test wrap file with -p flag."""
+        """Test wrap file with -p flag (now using lock for non-HTML)."""
         test_file = tmp_path / "secret.txt"
         test_file.write_text("Secret!")
 
@@ -434,8 +433,7 @@ salt: "0123456789abcdef0123456789abcdef"
         result = runner.invoke(
             main,
             [
-                "wrap",
-                "file",
+                "lock",
                 str(test_file),
                 "-p",
                 "my-password",
@@ -448,7 +446,7 @@ salt: "0123456789abcdef0123456789abcdef"
         assert output.exists()
 
     def test_wrap_file_prompts_password(self, runner, tmp_path):
-        """Test wrap file prompts for password when not provided."""
+        """Test wrap file prompts for password when not provided (now using lock)."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("content")
 
@@ -457,8 +455,7 @@ salt: "0123456789abcdef0123456789abcdef"
         result = runner.invoke(
             main,
             [
-                "wrap",
-                "file",
+                "lock",
                 str(test_file),
                 "-o",
                 str(output),
@@ -471,7 +468,7 @@ salt: "0123456789abcdef0123456789abcdef"
 
 
 class TestWrapSiteCli:
-    """Tests for 'lockhtml wrap site' CLI command."""
+    """Tests for 'pagevault lock --site' CLI command."""
 
     @pytest.fixture
     def runner(self):
@@ -485,7 +482,7 @@ salt: "0123456789abcdef0123456789abcdef"
 """
 
     def test_wrap_site_basic(self, runner, tmp_path, sample_config):
-        """Test basic wrap site command."""
+        """Test basic wrap site command (now using lock --site)."""
         site_dir = tmp_path / "site"
         site_dir.mkdir()
         (site_dir / "index.html").write_text("<html><body>Hi</body></html>")
@@ -498,9 +495,9 @@ salt: "0123456789abcdef0123456789abcdef"
         result = runner.invoke(
             main,
             [
-                "wrap",
-                "site",
+                "lock",
                 str(site_dir),
+                "--site",
                 "-c",
                 str(config_path),
                 "-o",
@@ -509,11 +506,11 @@ salt: "0123456789abcdef0123456789abcdef"
         )
 
         assert result.exit_code == 0
-        assert "Wrapped:" in result.output
+        assert "Wrapped site:" in result.output
         assert output.exists()
 
     def test_wrap_site_with_entry(self, runner, tmp_path, sample_config):
-        """Test wrap site with custom entry point."""
+        """Test wrap site with custom entry point (now using lock --site)."""
         site_dir = tmp_path / "site"
         site_dir.mkdir()
         (site_dir / "home.html").write_text("<html><body>Home</body></html>")
@@ -526,9 +523,9 @@ salt: "0123456789abcdef0123456789abcdef"
         result = runner.invoke(
             main,
             [
-                "wrap",
-                "site",
+                "lock",
                 str(site_dir),
+                "--site",
                 "-c",
                 str(config_path),
                 "-o",
@@ -545,7 +542,7 @@ salt: "0123456789abcdef0123456789abcdef"
         assert 'data-entry="home.html"' in content
 
     def test_wrap_site_missing_entry_fails(self, runner, tmp_path, sample_config):
-        """Test wrap site fails when entry point doesn't exist."""
+        """Test wrap site fails when entry point doesn't exist (now using lock --site)."""
         site_dir = tmp_path / "site"
         site_dir.mkdir()
         (site_dir / "page.html").write_text("<html>Page</html>")
@@ -556,9 +553,9 @@ salt: "0123456789abcdef0123456789abcdef"
         result = runner.invoke(
             main,
             [
-                "wrap",
-                "site",
+                "lock",
                 str(site_dir),
+                "--site",
                 "-c",
                 str(config_path),
             ],
@@ -656,10 +653,10 @@ class TestViewerToolbar:
 
     def test_toolbar_css_present(self):
         """CSS should contain toolbar styles."""
-        from lockhtml.config import TemplateConfig
+        from pagevault.config import TemplateConfig
 
         css = _get_wrap_css(TemplateConfig())
-        assert ".lockhtml-toolbar" in css
+        assert ".pagevault-toolbar" in css
         assert ".toolbar-filename" in css
         assert ".toolbar-btn" in css
 
@@ -679,10 +676,10 @@ class TestImageViewer:
 
     def test_image_zoom_css(self):
         """CSS should contain zoom styles for images."""
-        from lockhtml.config import TemplateConfig
+        from pagevault.config import TemplateConfig
 
         css = _get_wrap_css(TemplateConfig())
-        assert ".lockhtml-image-viewer" in css
+        assert ".pagevault-image-viewer" in css
         assert "img.zoomed" in css
         assert "zoom-in" in css
         assert "zoom-out" in css
@@ -699,12 +696,12 @@ class TestTextViewer:
 
     def test_line_numbers_css(self):
         """CSS should contain line-number gutter styles."""
-        from lockhtml.config import TemplateConfig
+        from pagevault.config import TemplateConfig
 
         css = _get_wrap_css(TemplateConfig())
         assert ".line-numbers" in css
         assert "user-select: none" in css
-        assert ".lockhtml-text-viewer" in css
+        assert ".pagevault-text-viewer" in css
 
 
 class TestWrapFileViewers:
@@ -833,7 +830,7 @@ class TestSiteResourceStringRewriting:
 
         # Verify all files are in the encrypted payload
         soup = BeautifulSoup(output.read_text(), "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted = elem["data-encrypted"]
         _, meta = decrypt(encrypted, "pw")
 

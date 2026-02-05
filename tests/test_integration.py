@@ -1,4 +1,4 @@
-"""Integration tests for lockhtml.
+"""Integration tests for pagevault.
 
 Tests the full workflow from CLI to browser-compatible output.
 """
@@ -10,10 +10,10 @@ import pytest
 from bs4 import BeautifulSoup
 from click.testing import CliRunner
 
-from lockhtml import encrypt
-from lockhtml.cli import main
-from lockhtml.config import LockhtmlConfig, create_default_config, load_config
-from lockhtml.parser import (
+from pagevault import encrypt
+from pagevault.cli import main
+from pagevault.config import PagevaultConfig, create_default_config, load_config
+from pagevault.parser import (
     lock_html,
     mark_body,
     sync_html_keys,
@@ -67,12 +67,12 @@ class TestHtmlOutput:
 </head>
 <body>
     <header>Navigation</header>
-    <lockhtml-encrypt hint="Contact admin for password">
+    <pagevault hint="Contact admin for password">
         <main>
             <h1>Secret Documentation</h1>
             <p>This is protected content.</p>
         </main>
-    </lockhtml-encrypt>
+    </pagevault>
     <footer>Copyright 2024</footer>
 </body>
 </html>"""
@@ -100,15 +100,15 @@ class TestHtmlOutput:
         assert "Copyright" in soup.find("footer").text
 
         # Encrypted element present
-        lock_elem = soup.find("lockhtml-encrypt")
+        lock_elem = soup.find("pagevault")
         assert lock_elem is not None
         assert lock_elem.has_attr("data-encrypted")
         assert lock_elem.has_attr("data-hint")
         assert lock_elem["data-hint"] == "Contact admin for password"
 
         # Runtime injected
-        runtime_style = soup.find("style", {"data-lockhtml-runtime": True})
-        runtime_script = soup.find("script", {"data-lockhtml-runtime": True})
+        runtime_style = soup.find("style", {"data-pagevault-runtime": True})
+        runtime_script = soup.find("script", {"data-pagevault-runtime": True})
         assert runtime_style is not None
         assert runtime_script is not None
 
@@ -117,12 +117,12 @@ class TestHtmlOutput:
 
     def test_encrypted_html_contains_web_component(self):
         """Test encrypted HTML contains Web Component definition."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
         # Web Component registration
         assert "customElements.define" in encrypted
-        assert "'lockhtml-encrypt'" in encrypted
+        assert "'pagevault'" in encrypted
 
         # Key WebCrypto functions
         assert "crypto.subtle" in encrypted
@@ -130,9 +130,9 @@ class TestHtmlOutput:
         assert "AES-GCM" in encrypted
 
         # UI elements
-        assert ".lockhtml-container" in encrypted
-        assert ".lockhtml-input" in encrypted
-        assert ".lockhtml-button" in encrypted
+        assert ".pagevault-container" in encrypted
+        assert ".pagevault-input" in encrypted
+        assert ".pagevault-button" in encrypted
 
 
 class TestBrowserFeatures:
@@ -140,7 +140,7 @@ class TestBrowserFeatures:
 
     def test_auto_decrypt_from_storage(self):
         """Test JS includes localStorage auto-decrypt logic."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
         assert "localStorage" in encrypted
@@ -149,17 +149,17 @@ class TestBrowserFeatures:
 
     def test_url_fragment_handling(self):
         """Test JS includes URL fragment handling."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
-        assert "lockhtml_pwd" in encrypted
-        assert "lockhtml_logout" in encrypted
+        assert "pagevault_pwd" in encrypted
+        assert "pagevault_logout" in encrypted
         assert "location.hash" in encrypted
 
     def test_remember_me_options(self):
         """Test JS handles remember-me options."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        config = LockhtmlConfig()
+        html = "<pagevault>Secret</pagevault>"
+        config = PagevaultConfig()
         encrypted = lock_html(html, "password", config)
 
         assert "storeCredentials" in encrypted
@@ -168,10 +168,10 @@ class TestBrowserFeatures:
 
     def test_decryption_event_dispatched(self):
         """Test JS dispatches event after decryption."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
-        assert "lockhtml:decrypted" in encrypted
+        assert "pagevault:decrypted" in encrypted
         assert "CustomEvent" in encrypted
         assert "dispatchEvent" in encrypted
 
@@ -192,12 +192,12 @@ class TestFullWorkflow:
 <head><title>My Site</title></head>
 <body>
 <nav>Home | About | Members</nav>
-<lockhtml-encrypt hint="Members only">
+<pagevault hint="Members only">
 <section class="members-area">
     <h1>Member Content</h1>
     <p>Secret member information.</p>
 </section>
-</lockhtml-encrypt>
+</pagevault>
 <footer>Public footer</footer>
 </body>
 </html>""")
@@ -216,7 +216,7 @@ class TestFullWorkflow:
         assert result.exit_code == 0
 
         # Update password in config
-        config_path = site_dir / ".lockhtml.yaml"
+        config_path = site_dir / ".pagevault.yaml"
         config_content = config_path.read_text()
         config_content = config_content.replace(
             'password: "your-strong-passphrase"', 'password: "member-secret"'
@@ -238,7 +238,7 @@ class TestFullWorkflow:
             ],
         )
         assert result.exit_code == 0
-        # Both files get locked: index.html has lockhtml elements,
+        # Both files get locked: index.html has pagevault elements,
         # about.html gets default body wrapping (v2 behavior)
         assert "2 file(s) locked" in result.output
 
@@ -281,7 +281,7 @@ class TestFullWorkflow:
 
         # Config at root
         create_default_config(root)
-        config_path = root / ".lockhtml.yaml"
+        config_path = root / ".pagevault.yaml"
         content = config_path.read_text().replace(
             'password: "your-strong-passphrase"', 'password: "inherited-password"'
         )
@@ -292,7 +292,7 @@ class TestFullWorkflow:
         nested.mkdir(parents=True)
 
         html_path = nested / "secret.html"
-        html_path.write_text("<lockhtml-encrypt>Nested secret</lockhtml-encrypt>")
+        html_path.write_text("<pagevault>Nested secret</pagevault>")
 
         # Should find config from nested dir
         config = load_config(start_path=nested)
@@ -301,7 +301,7 @@ class TestFullWorkflow:
     def test_env_override_workflow(self, tmp_path, monkeypatch):
         """Test environment variable override for CI/CD."""
         # Create minimal config without password
-        config_path = tmp_path / ".lockhtml.yaml"
+        config_path = tmp_path / ".pagevault.yaml"
         config_path.write_text("""
 salt: "0123456789abcdef0123456789abcdef"
 defaults:
@@ -309,7 +309,7 @@ defaults:
 """)
 
         # Set password via env
-        monkeypatch.setenv("LOCKHTML_PASSWORD", "ci-password")
+        monkeypatch.setenv("PAGEVAULT_PASSWORD", "ci-password")
 
         config = load_config(config_path=config_path)
         assert config.password == "ci-password"
@@ -321,11 +321,11 @@ class TestEdgeCases:
 
     def test_special_characters_in_content(self):
         """Test content with special HTML/JS characters."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <script>alert('test');</script>
 <p>HTML entities: &amp; &lt; &gt; &quot;</p>
 <p>Unicode: 日本語 🔒 émoji</p>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         encrypted = lock_html(html, "password")
         decrypted = unlock_html(encrypted, "password")
@@ -336,7 +336,7 @@ class TestEdgeCases:
 
     def test_nested_elements_preserved(self):
         """Test nested HTML structure is preserved."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <div class="outer">
     <div class="middle">
         <div class="inner">
@@ -344,7 +344,7 @@ class TestEdgeCases:
         </div>
     </div>
 </div>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         encrypted = lock_html(html, "password")
         decrypted = unlock_html(encrypted, "password")
@@ -356,11 +356,11 @@ class TestEdgeCases:
 
     def test_attributes_preserved(self):
         """Test element attributes are preserved."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <div id="main" class="container" data-custom="value" style="color: red;">
     Content
 </div>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         encrypted = lock_html(html, "password")
         decrypted = unlock_html(encrypted, "password")
@@ -374,13 +374,13 @@ class TestEdgeCases:
 
     def test_whitespace_preservation(self):
         """Test significant whitespace is preserved."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <pre>
     Indented
         code
     block
 </pre>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         encrypted = lock_html(html, "password")
         decrypted = unlock_html(encrypted, "password")
@@ -401,9 +401,9 @@ class TestMultiUserWorkflow:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt hint="Team access">
+<pagevault hint="Team access">
 <p>Team secret content</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>"""
 
@@ -419,9 +419,9 @@ class TestMultiUserWorkflow:
 
     def test_sync_after_adding_user(self):
         """Test encrypt with alice, add bob via sync, bob can decrypt."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <p>Original content</p>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         # Encrypt with alice only
         initial_users = {"alice": "pw-alice"}
@@ -446,9 +446,9 @@ class TestMultiUserWorkflow:
 
     def test_sync_after_removing_user(self):
         """Test encrypt with alice+bob, remove bob via sync, bob fails."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <p>Restricted content</p>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         # Encrypt with both users
         initial_users = {"alice": "pw-alice", "bob": "pw-bob"}
@@ -467,16 +467,16 @@ class TestMultiUserWorkflow:
         assert "Restricted content" in decrypted
 
         # Bob should no longer be able to decrypt
-        from lockhtml.crypto import LockhtmlError
+        from pagevault.crypto import PagevaultError
 
-        with pytest.raises(LockhtmlError):
+        with pytest.raises(PagevaultError):
             unlock_html(synced, "pw-bob", username="bob")
 
     def test_sync_with_rekey(self):
         """Test encrypt then sync --rekey, verify content still decryptable."""
-        html = """<lockhtml-encrypt>
+        html = """<pagevault>
 <p>Rekeyed content</p>
-</lockhtml-encrypt>"""
+</pagevault>"""
 
         users = {"alice": "pw-alice", "bob": "pw-bob"}
         encrypted = lock_html(html, users=users)
@@ -499,7 +499,7 @@ class TestBodyWrapWorkflow:
     """Tests for default body wrapping workflow."""
 
     def test_body_wrap_roundtrip(self):
-        """Test HTML without lockhtml elements: encrypt wraps body, decrypt restores."""
+        """Test HTML without pagevault elements: encrypt wraps body, decrypt restores."""
 
         html = """<!DOCTYPE html>
 <html>
@@ -512,7 +512,7 @@ class TestBodyWrapWorkflow:
 
         # Wrap body (simulates what CLI does before encrypt)
         wrapped = mark_body(html)
-        assert "<lockhtml-encrypt>" in wrapped
+        assert "<pagevault>" in wrapped
 
         # Encrypt
         encrypted = lock_html(wrapped, "password")

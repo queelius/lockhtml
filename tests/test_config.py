@@ -1,11 +1,11 @@
-"""Tests for lockhtml.config module."""
+"""Tests for pagevault.config module."""
 
 import pytest
 
-from lockhtml.config import (
+from pagevault.config import (
     CONFIG_FILENAME,
     DefaultsConfig,
-    LockhtmlConfig,
+    PagevaultConfig,
     TemplateConfig,
     config_to_dict,
     create_default_config,
@@ -13,7 +13,7 @@ from lockhtml.config import (
     load_config,
     update_config_users,
 )
-from lockhtml.crypto import LockhtmlError, generate_salt, salt_to_hex
+from pagevault.crypto import PagevaultError, generate_salt, salt_to_hex
 
 
 class TestFindConfigFile:
@@ -98,7 +98,7 @@ template:
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text('password: "from-file"')
 
-        monkeypatch.setenv("LOCKHTML_PASSWORD", "from-env")
+        monkeypatch.setenv("PAGEVAULT_PASSWORD", "from-env")
 
         config = load_config(config_path=config_path)
         assert config.password == "from-env"
@@ -108,14 +108,14 @@ template:
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text('password: "from-file"')
 
-        monkeypatch.setenv("LOCKHTML_PASSWORD", "from-env")
+        monkeypatch.setenv("PAGEVAULT_PASSWORD", "from-env")
 
         config = load_config(config_path=config_path, password_override="from-arg")
         assert config.password == "from-arg"
 
     def test_missing_explicit_config_fails(self, tmp_path):
         """Test explicit config path that doesn't exist fails."""
-        with pytest.raises(LockhtmlError, match="not found"):
+        with pytest.raises(PagevaultError, match="not found"):
             load_config(config_path=tmp_path / "nonexistent.yaml")
 
     def test_invalid_yaml_fails(self, tmp_path):
@@ -123,7 +123,7 @@ template:
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text("invalid: yaml: syntax:")
 
-        with pytest.raises(LockhtmlError, match="Invalid YAML"):
+        with pytest.raises(PagevaultError, match="Invalid YAML"):
             load_config(config_path=config_path)
 
     def test_invalid_remember_value_fails(self, tmp_path):
@@ -134,7 +134,7 @@ defaults:
   remember: "invalid"
 """)
 
-        with pytest.raises(LockhtmlError, match="Invalid remember value"):
+        with pytest.raises(PagevaultError, match="Invalid remember value"):
             load_config(config_path=config_path)
 
     def test_negative_remember_days_fails(self, tmp_path):
@@ -145,7 +145,7 @@ defaults:
   remember_days: -1
 """)
 
-        with pytest.raises(LockhtmlError, match="non-negative"):
+        with pytest.raises(PagevaultError, match="non-negative"):
             load_config(config_path=config_path)
 
     def test_defaults_without_file(self):
@@ -189,7 +189,7 @@ class TestCreateDefaultConfig:
         """Test fails if config already exists."""
         (tmp_path / CONFIG_FILENAME).write_text("existing")
 
-        with pytest.raises(LockhtmlError, match="already exists"):
+        with pytest.raises(PagevaultError, match="already exists"):
             create_default_config(tmp_path)
 
 
@@ -198,14 +198,14 @@ class TestConfigToDict:
 
     def test_masks_password(self):
         """Test password is masked in output."""
-        config = LockhtmlConfig(password="secret")
+        config = PagevaultConfig(password="secret")
         data = config_to_dict(config)
 
         assert data["password"] == "********"
 
     def test_none_password(self):
         """Test None password shows as None."""
-        config = LockhtmlConfig()
+        config = PagevaultConfig()
         data = config_to_dict(config)
 
         assert data["password"] is None
@@ -213,7 +213,7 @@ class TestConfigToDict:
     def test_includes_all_fields(self):
         """Test all fields are included."""
         salt = generate_salt()
-        config = LockhtmlConfig(
+        config = PagevaultConfig(
             password="test",
             salt=salt,
             defaults=DefaultsConfig(remember="local", remember_days=7),
@@ -261,7 +261,7 @@ managed:
 users:
   "alice:admin": "pw"
 """)
-        with pytest.raises(LockhtmlError, match="cannot contain ':'"):
+        with pytest.raises(PagevaultError, match="cannot contain ':'"):
             load_config(config_path=config_path)
 
     def test_empty_username_fails(self, tmp_path):
@@ -271,7 +271,7 @@ users:
 users:
   "": "pw"
 """)
-        with pytest.raises(LockhtmlError, match="cannot be empty"):
+        with pytest.raises(PagevaultError, match="cannot be empty"):
             load_config(config_path=config_path)
 
     def test_empty_password_fails(self, tmp_path):
@@ -281,24 +281,24 @@ users:
 users:
   alice: ""
 """)
-        with pytest.raises(LockhtmlError, match="cannot be empty"):
+        with pytest.raises(PagevaultError, match="cannot be empty"):
             load_config(config_path=config_path)
 
     def test_users_empty_dict_fails(self, tmp_path):
         """Test that an empty users dict fails validation."""
-        config = LockhtmlConfig(users={})
-        with pytest.raises(LockhtmlError, match="non-empty dictionary"):
+        config = PagevaultConfig(users={})
+        with pytest.raises(PagevaultError, match="non-empty dictionary"):
             config.validate()
 
     def test_config_to_dict_masks_user_passwords(self):
         """Test that config_to_dict masks all user passwords."""
-        config = LockhtmlConfig(users={"alice": "pw"})
+        config = PagevaultConfig(users={"alice": "pw"})
         data = config_to_dict(config)
         assert data["users"] == {"alice": "********"}
 
     def test_config_to_dict_includes_managed(self):
         """Test that config_to_dict includes managed patterns."""
-        config = LockhtmlConfig(managed=["*.html"])
+        config = PagevaultConfig(managed=["*.html"])
         data = config_to_dict(config)
         assert data["managed"] == ["*.html"]
 
@@ -331,6 +331,67 @@ template:
         content = config_path.read_text()
         assert "# users:" in content
         assert "#   alice:" in content
+
+
+class TestDefaultUserConfig:
+    """Tests for default user configuration."""
+
+    def test_loads_user_from_yaml(self, tmp_path):
+        """Test loading user field from config file."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+user: alice
+users:
+  alice: "pw-a"
+  bob: "pw-b"
+""")
+        config = load_config(config_path=config_path)
+        assert config.user == "alice"
+        assert config.users == {"alice": "pw-a", "bob": "pw-b"}
+
+    def test_user_must_exist_in_users(self, tmp_path):
+        """Test that user field must reference an existing user in users dict."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+user: charlie
+users:
+  alice: "pw-a"
+  bob: "pw-b"
+""")
+        with pytest.raises(PagevaultError, match="not found in 'users' dict"):
+            load_config(config_path=config_path)
+
+    def test_user_without_users_dict_fails(self, tmp_path):
+        """Test that user field without users dict fails validation."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+user: alice
+password: "single-pw"
+""")
+        with pytest.raises(PagevaultError, match="no 'users' dict defined"):
+            load_config(config_path=config_path)
+
+    def test_user_none_by_default(self, tmp_path):
+        """Test user is None when not specified in config."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+users:
+  alice: "pw-a"
+""")
+        config = load_config(config_path=config_path)
+        assert config.user is None
+
+    def test_config_to_dict_includes_user(self):
+        """Test that config_to_dict includes user field."""
+        config = PagevaultConfig(user="alice", users={"alice": "pw-a"})
+        data = config_to_dict(config)
+        assert data["user"] == "alice"
+
+    def test_config_to_dict_user_none(self):
+        """Test that config_to_dict handles None user."""
+        config = PagevaultConfig()
+        data = config_to_dict(config)
+        assert data["user"] is None
 
 
 class TestUpdateConfigUsers:
@@ -411,7 +472,7 @@ managed:
         update_config_users(config_path, {"alice": "pw-a"})
 
         content = config_path.read_text()
-        assert content.startswith("# lockhtml configuration\n")
+        assert content.startswith("# pagevault configuration\n")
         assert "WARNING" in content
         assert ".gitignore" in content
 
@@ -430,6 +491,6 @@ users:
         assert "users:" not in content
 
     def test_nonexistent_file_raises(self, tmp_path):
-        """Test that a nonexistent file raises LockhtmlError."""
-        with pytest.raises(LockhtmlError, match="Cannot read"):
+        """Test that a nonexistent file raises PagevaultError."""
+        with pytest.raises(PagevaultError, match="Cannot read"):
             update_config_users(tmp_path / "nonexistent.yaml", {"alice": "pw"})

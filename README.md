@@ -1,117 +1,269 @@
-# lockhtml
+# pagevault
 
-Password-protect regions of HTML files for static hosting.
+**Password-protect semi-private content on static sites** – ideal for Hugo blogs, GitHub Pages, or any static hosting.
 
-## Overview
+Encrypt sensitive pages and sections while keeping navigation, styling, and public content unchanged. Deploy to GitHub Pages, Netlify, or any static host without a backend.
 
-**lockhtml** encrypts marked regions of HTML files using `<lockhtml-encrypt>` custom elements, enabling mixed public/private content on static sites (GitHub Pages, Netlify, etc.).
+## The Problem
 
-Unlike tools that wrap entire pages, lockhtml preserves HTML structure - headers, footers, navigation, scripts, and styles stay public while only the marked content is encrypted.
+You want to publish semi-private content on your static site:
+- Technical docs with client-confidential sections
+- Blog posts mixing public narratives with private thoughts
+- Educational material with solutions behind passwords
+- Shared notes that shouldn't be fully public (yet)
+
+Traditional solutions require a backend. pagevault works with *pure static hosting* – your site is entirely on GitHub Pages or equivalent, no server needed.
+
+## How It Works
+
+Mark sections with `<pagevault>` tags. pagevault encrypts just those sections while preserving your site's structure, styling, navigation, and scripts.
+
+```html
+<header>Public navigation</header>
+
+<pagevault hint="Contact me for the password">
+  <h2>Private thoughts on this topic</h2>
+  <p>This section is encrypted...</p>
+</pagevault>
+
+<footer>Public footer</footer>
+```
+
+Visitors see your site normally. When they encounter protected content, a password prompt appears. Once unlocked, the content displays beautifully. Password can be remembered in browser (configurable).
+
+## Why pagevault?
+
+| Feature | pagevault | Wrap entire page | Hide with CSS | No protection |
+|---------|-----------|------------------|---------------|---------------|
+| **Mixed public/private** | ✅ | ❌ | ❌ | ❌ |
+| **Static hosting** | ✅ | ✅ | ✅ | ✅ |
+| **No server** | ✅ | ✅ | ✅ | ✅ |
+| **Preserves structure** | ✅ | ❌ | ✅ | ✅ |
+| **Real encryption** | ✅ | ✅ | ❌ | ❌ |
+| **Shareable links** | ✅ | ✅ | ❌ | ❌ |
+
+## Quick Start
+
+### 1. Install
+
+```bash
+pip install pagevault
+```
+
+### 2. Mark content in your HTML
+
+```html
+<!-- Mark manually or use the CLI -->
+<pagevault>Private content here</pagevault>
+```
+
+Or auto-mark sections:
+
+```bash
+pagevault mark page.html -s "#private" --hint "Contact admin"
+```
+
+### 3. Initialize config
+
+```bash
+pagevault config init
+# Creates .pagevault.yaml with a generated password
+# Add to .gitignore!
+```
+
+### 4. Encrypt and deploy
+
+```bash
+pagevault lock index.html site/*.html -d _locked/
+# Deploy _locked/ to your static host
+```
+
+Visitors see password prompts on protected sections. Share the password however you like – via email, in docs, Discord, etc.
+
+## Real-World Use Cases
+
+### Hugo Blog
+```bash
+# Mark semi-private blog posts
+pagevault mark content/posts/*.md --selector ".private"
+
+# Generate locked HTML during build
+hugo -o build/
+pagevault lock build/posts/ -r --css styles/pagevault.css
+
+# Deploy to GitHub Pages
+git add build/
+git commit -m "Publish semi-private posts"
+git push
+```
+
+### Shared Knowledge Base
+```bash
+# Protect implementation details in public docs
+pagevault lock docs/ -r --hint "See team wiki for password"
+# Upload to Netlify
+```
+
+### Client Projects
+```bash
+# Share progress with selective access
+pagevault lock status-page.html -p "$CLIENT_PASSWORD"
+# Send link + password to stakeholders only
+```
+
+## Features
+
+### For Users
+- **Auto-prompt**: Password prompt appears automatically (optional)
+- **Remember-me**: Store password in browser (session or persistent)
+- **Shareable links**: `#pagevault_pwd=PASSWORD` in URL fragment
+- **Clean logout**: `#pagevault_logout` clears stored passwords
+- **Event hooks**: JavaScript can react to decryption
+
+### For Developers
+- **Selective encryption**: Mark just what needs protecting
+- **HTML structure preserved**: Navigation, scripts, styles stay public
+- **Custom CSS**: Use your own styles for the password prompt
+- **Multi-user encryption**: Encrypt for different users with different passwords
+- **Configuration cascade**: Command-line > env vars > .pagevault.yaml > defaults
+- **Web Crypto API**: Same encryption as modern browsers use
+
+## Security
+
+- **AES-256-GCM**: Military-grade AEAD encryption
+- **PBKDF2-SHA256**: 310,000 iterations for key derivation (OWASP recommended)
+- **WebCrypto compatible**: Uses standard browser APIs, no custom crypto
+- **Stateless**: No tracking, no analytics, all processing on-client
 
 ## Installation
 
 ```bash
-pip install lockhtml
+pip install pagevault
+# or
+pip install git+https://github.com/yourusername/pagevault.git
 ```
 
-## Quick Start
-
-1. Mark content to protect:
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <title>My Page</title>
-  <script src="app.js"></script>
-</head>
-<body>
-  <header>Public navigation</header>
-
-  <lockhtml-encrypt hint="Contact admin for password">
-    <main>
-      <p>This content gets encrypted...</p>
-    </main>
-  </lockhtml-encrypt>
-
-  <footer>Public footer</footer>
-</body>
-</html>
-```
-
-2. Initialize configuration:
-
-```bash
-lockhtml config init
-# Edit .lockhtml.yaml to set your password
-```
-
-3. Encrypt:
-
-```bash
-lockhtml encrypt index.html
-lockhtml encrypt site/ -r -d encrypted/
-```
-
-4. Deploy the encrypted files to your static host.
-
-## Configuration
-
-Create `.lockhtml.yaml` (add to `.gitignore`!):
-
-```yaml
-password: "your-strong-passphrase"
-salt: "auto-generated-on-init"
-
-defaults:
-  remember: "ask"        # "none", "session", "local", "ask"
-  remember_days: 0       # 0 = no expiration
-  auto_prompt: true      # Show password prompt on load
-
-template:
-  title: "Protected Content"
-  button_text: "Unlock"
-  error_text: "Incorrect password"
-```
-
-Or use environment variable: `LOCKHTML_PASSWORD`
+Requires Python 3.10+.
 
 ## CLI Reference
 
 ```bash
-# Encrypt
-lockhtml encrypt file.html
-lockhtml encrypt site/ -r                    # Recursive
-lockhtml encrypt site/ -r -d encrypted/      # Output directory
-lockhtml encrypt file.html -p "password"     # Override password
+# Lock (encrypt marked regions or entire files)
+pagevault lock page.html                  # HTML: encrypt marked regions
+pagevault lock report.pdf                 # PDF: wrap entire file
+pagevault lock site/                      # All files in directory
+pagevault lock site/ --site               # Bundle as encrypted site
+pagevault lock page.html -s "#secret"     # Encrypt only #secret element
 
-# Decrypt (restore original)
-lockhtml decrypt encrypted/file.html
-lockhtml decrypt encrypted/ -r -d restored/
+# Unlock (decrypt, returns to marked state)
+pagevault unlock _locked/page.html
+pagevault unlock _locked/ -r
+
+# Mark (add encryption tags)
+pagevault mark page.html                  # Wrap entire body
+pagevault mark page.html -s ".private"    # Wrap matching elements
 
 # Config
-lockhtml config init          # Create .lockhtml.yaml
-lockhtml config show          # Display current config
-lockhtml config where         # Find config file location
+pagevault config init                     # Create .pagevault.yaml
+pagevault config show                     # Display current config
+pagevault config where                    # Find config file
+
+# Sync (re-encrypt for user changes)
+pagevault sync _locked/ -r                # Update after password change
 ```
 
-## Browser Features
+## Configuration
 
-The encrypted HTML includes a Web Component that provides:
+Create `.pagevault.yaml` in your project root (add to `.gitignore`!):
 
-- **Password prompt**: Auto-shows on page load (configurable)
-- **Remember-me**: Store password in localStorage/sessionStorage
-- **Auto-decrypt links**: `#lockhtml_pwd=<password>` URL fragment
-- **Logout**: `#lockhtml_logout` clears stored passwords
-- **Event dispatch**: `lockhtml:decrypted` event for scripts
+```yaml
+# Encryption
+password: "your-strong-passphrase"         # Required
+salt: "auto-generated"                     # Regenerated on config init
 
-## Security
+# UI defaults
+defaults:
+  remember: "ask"                          # "none", "session", "local", "ask"
+  remember_days: 0                         # 0 = no expiration
+  auto_prompt: true                        # Show password prompt on load
 
-- AES-256-GCM encryption
-- PBKDF2-SHA256 key derivation (310,000 iterations)
-- Compatible with WebCrypto API
-- Consistent salt for remember-me/share links across re-encryptions
+# Styling
+template:
+  title: "Protected Content"               # Shown in prompt
+  button_text: "Unlock"
+  error_text: "Incorrect password"
+  hint: "Contact admin for password"       # Default hint
+
+# Multi-user
+users:
+  alice: "alice-password"
+  bob: "bob-password"
+```
+
+Or use environment variable:
+```bash
+export PAGEVAULT_PASSWORD="your-password"
+pagevault lock page.html
+```
+
+## Architecture
+
+**Workflow:**
+```
+CLI (cli.py)
+  ↓
+Config (config.py) – cascade: args > env > .pagevault.yaml > defaults
+  ↓
+Parser (parser.py) – HTML manipulation with BeautifulSoup/lxml
+  ↓
+Crypto (crypto.py) – WebCrypto-compatible AES-256-GCM
+  ↓
+Wrap (wrap.py) – Bundle files/sites into encrypted HTML
+  ↓
+Template (template.py) – Inject Web Component + JS runtime
+```
+
+**Self-contained output:** Every encrypted HTML file includes the decryption logic, no external dependencies at runtime.
+
+## Contributing
+
+```bash
+# Setup
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Test
+pytest tests/ -v --cov=pagevault
+
+# Lint
+ruff check src/ tests/
+ruff format src/ tests/
+```
 
 ## License
 
-MIT
+MIT – See LICENSE for details.
+
+## FAQ
+
+**Q: Is this safe?**
+A: Yes. Uses AES-256-GCM and PBKDF2-SHA256 with 310k iterations. All processing is client-side, no data leaves your browser.
+
+**Q: Can I share the encrypted files publicly?**
+A: Yes! Encryption is strong. The password is what you control – share it however you like (email, docs, Discord, etc.) or not at all.
+
+**Q: Does this work with Hugo/Next.js/Gatsby?**
+A: Yes! Any static site generator. pagevault processes HTML files after your generator creates them.
+
+**Q: Can multiple people have different passwords?**
+A: Yes! Use the `users` config to encrypt for multiple users independently.
+
+**Q: What if I forget the password?**
+A: You'd need to re-encrypt with a new password. Store passwords safely! Consider a password manager.
+
+**Q: Can I update encrypted content?**
+A: Decrypt with `pagevault unlock`, edit the HTML, then re-encrypt with `pagevault lock`.
+
+---
+
+Made with ❤️ for static site builders who want privacy without complexity.

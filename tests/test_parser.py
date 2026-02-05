@@ -1,14 +1,14 @@
-"""Tests for lockhtml.parser module."""
+"""Tests for pagevault.parser module."""
 
 import pytest
 from bs4 import BeautifulSoup
 
-from lockhtml.config import DefaultsConfig, LockhtmlConfig, TemplateConfig
-from lockhtml.crypto import LockhtmlError, content_hash, decrypt, generate_salt
-from lockhtml.parser import (
+from pagevault.config import DefaultsConfig, PagevaultConfig, TemplateConfig
+from pagevault.crypto import PagevaultError, content_hash, decrypt, generate_salt
+from pagevault.parser import (
     extract_element_content,
-    find_lockhtml_elements,
-    has_lockhtml_elements,
+    find_pagevault_elements,
+    has_pagevault_elements,
     is_already_encrypted,
     lock_html,
     mark_body,
@@ -27,8 +27,8 @@ class TestMarkElements:
 
         result = mark_elements(html, ["#secret"])
 
-        assert "<lockhtml-encrypt>" in result
-        assert "</lockhtml-encrypt>" in result
+        assert "<pagevault>" in result
+        assert "</pagevault>" in result
         assert "Secret content" in result
 
     def test_wraps_element_by_class(self):
@@ -38,7 +38,7 @@ class TestMarkElements:
         result = mark_elements(html, [".private"])
 
         soup = BeautifulSoup(result, "html.parser")
-        wrapper = soup.find("lockhtml-encrypt")
+        wrapper = soup.find("pagevault")
         assert wrapper is not None
         assert "Private content" in str(wrapper)
 
@@ -51,7 +51,7 @@ class TestMarkElements:
 
         result = mark_elements(html, ["#first", ".second"])
 
-        assert result.count("<lockhtml-encrypt>") == 2
+        assert result.count("<pagevault>") == 2
 
     def test_wraps_multiple_matching_elements(self):
         """Test wrapping multiple elements matching same selector."""
@@ -62,7 +62,7 @@ class TestMarkElements:
 
         result = mark_elements(html, [".secret"])
 
-        assert result.count("<lockhtml-encrypt>") == 2
+        assert result.count("<pagevault>") == 2
 
     def test_adds_hint_attribute(self):
         """Test hint attribute is added to wrapper."""
@@ -89,30 +89,30 @@ class TestMarkElements:
         assert 'hint="The hint"' in result
         assert 'remember="session"' in result
 
-    def test_wraps_lockhtml_encrypt_elements(self):
-        """Test can wrap existing lockhtml-encrypt elements for composability."""
+    def test_wraps_pagevault_elements(self):
+        """Test can wrap existing pagevault elements for composability."""
         html = (
-            "<html><body><lockhtml-encrypt>"
-            "Already wrapped</lockhtml-encrypt></body></html>"
+            "<html><body><pagevault>"
+            "Already wrapped</pagevault></body></html>"
         )
 
-        result = mark_elements(html, ["lockhtml-encrypt"])
+        result = mark_elements(html, ["pagevault"])
 
-        # Should be wrapped in another lockhtml-encrypt (closure property)
-        assert result.count("<lockhtml-encrypt") == 2
+        # Should be wrapped in another pagevault (closure property)
+        assert result.count("<pagevault") == 2
 
     def test_skips_already_wrapped_elements(self):
-        """Test skips elements already inside lockhtml-encrypt."""
+        """Test skips elements already inside pagevault."""
         html = (
-            "<html><body><lockhtml-encrypt>"
+            "<html><body><pagevault>"
             '<div id="inner">Content</div>'
-            "</lockhtml-encrypt></body></html>"
+            "</pagevault></body></html>"
         )
 
         result = mark_elements(html, ["#inner"])
 
         # Should not wrap the inner div
-        assert result.count("<lockhtml-encrypt>") == 1
+        assert result.count("<pagevault>") == 1
 
     def test_no_selectors_returns_unchanged(self):
         """Test returns unchanged HTML when no selectors provided."""
@@ -120,8 +120,8 @@ class TestMarkElements:
 
         result = mark_elements(html, [])
 
-        # No lockhtml-encrypt should be added
-        assert "<lockhtml-encrypt>" not in result
+        # No pagevault should be added
+        assert "<pagevault>" not in result
 
     def test_no_matching_elements(self):
         """Test handles no matching elements gracefully."""
@@ -129,7 +129,7 @@ class TestMarkElements:
 
         result = mark_elements(html, ["#nonexistent", ".missing"])
 
-        assert "<lockhtml-encrypt>" not in result
+        assert "<pagevault>" not in result
 
     def test_complex_selector(self):
         """Test complex CSS selector."""
@@ -142,7 +142,7 @@ class TestMarkElements:
         result = mark_elements(html, ["article.post .content"])
 
         soup = BeautifulSoup(result, "html.parser")
-        wrapper = soup.find("lockhtml-encrypt")
+        wrapper = soup.find("pagevault")
         assert wrapper is not None
         assert "Article content" in str(wrapper)
 
@@ -162,52 +162,52 @@ class TestMarkElements:
         assert "data-encrypted=" in encrypted
 
 
-class TestHasLockhtmlElements:
-    """Tests for has_lockhtml_elements function."""
+class TestHasPagevaultElements:
+    """Tests for has_pagevault_elements function."""
 
     def test_detects_element(self):
-        """Test detecting lockhtml-encrypt elements."""
-        html = "<html><lockhtml-encrypt>secret</lockhtml-encrypt></html>"
-        assert has_lockhtml_elements(html) is True
+        """Test detecting pagevault elements."""
+        html = "<html><pagevault>secret</pagevault></html>"
+        assert has_pagevault_elements(html) is True
 
     def test_detects_self_closing(self):
         """Test detecting self-closing elements."""
-        html = '<html><lockhtml-encrypt data-encrypted="x"/></html>'
-        assert has_lockhtml_elements(html) is True
+        html = '<html><pagevault data-encrypted="x"/></html>'
+        assert has_pagevault_elements(html) is True
 
     def test_case_insensitive(self):
         """Test case-insensitive detection."""
-        html = "<html><LOCKHTML-ENCRYPT>secret</LOCKHTML-ENCRYPT></html>"
-        assert has_lockhtml_elements(html) is True
+        html = "<html><PAGEVAULT>secret</PAGEVAULT></html>"
+        assert has_pagevault_elements(html) is True
 
     def test_no_elements(self):
         """Test returns False when no elements."""
         html = "<html><body>normal content</body></html>"
-        assert has_lockhtml_elements(html) is False
+        assert has_pagevault_elements(html) is False
 
 
-class TestFindLockhtmlElements:
-    """Tests for find_lockhtml_elements function."""
+class TestFindPagevaultElements:
+    """Tests for find_pagevault_elements function."""
 
     def test_finds_single_element(self):
         """Test finding a single element."""
-        html = "<html><lockhtml-encrypt>secret</lockhtml-encrypt></html>"
+        html = "<html><pagevault>secret</pagevault></html>"
         soup = BeautifulSoup(html, "html.parser")
 
-        elements = find_lockhtml_elements(soup)
+        elements = find_pagevault_elements(soup)
         assert len(elements) == 1
 
     def test_finds_multiple_elements(self):
         """Test finding multiple elements."""
         html = """
         <html>
-            <lockhtml-encrypt>one</lockhtml-encrypt>
-            <lockhtml-encrypt>two</lockhtml-encrypt>
+            <pagevault>one</pagevault>
+            <pagevault>two</pagevault>
         </html>
         """
         soup = BeautifulSoup(html, "html.parser")
 
-        elements = find_lockhtml_elements(soup)
+        elements = find_pagevault_elements(soup)
         assert len(elements) == 2
 
 
@@ -216,18 +216,18 @@ class TestExtractElementContent:
 
     def test_extracts_text(self):
         """Test extracting text content."""
-        html = "<lockhtml-encrypt>secret text</lockhtml-encrypt>"
+        html = "<pagevault>secret text</pagevault>"
         soup = BeautifulSoup(html, "html.parser")
-        element = soup.find("lockhtml-encrypt")
+        element = soup.find("pagevault")
 
         content = extract_element_content(element)
         assert content == "secret text"
 
     def test_extracts_nested_html(self):
         """Test extracting nested HTML."""
-        html = "<lockhtml-encrypt><div><p>nested</p></div></lockhtml-encrypt>"
+        html = "<pagevault><div><p>nested</p></div></pagevault>"
         soup = BeautifulSoup(html, "html.parser")
-        element = soup.find("lockhtml-encrypt")
+        element = soup.find("pagevault")
 
         content = extract_element_content(element)
         assert "<div>" in content
@@ -239,17 +239,17 @@ class TestIsAlreadyEncrypted:
 
     def test_encrypted_element(self):
         """Test detecting encrypted element."""
-        html = '<lockhtml-encrypt data-encrypted="ciphertext"></lockhtml-encrypt>'
+        html = '<pagevault data-encrypted="ciphertext"></pagevault>'
         soup = BeautifulSoup(html, "html.parser")
-        element = soup.find("lockhtml-encrypt")
+        element = soup.find("pagevault")
 
         assert is_already_encrypted(element) is True
 
     def test_unencrypted_element(self):
         """Test detecting unencrypted element."""
-        html = "<lockhtml-encrypt>plaintext</lockhtml-encrypt>"
+        html = "<pagevault>plaintext</pagevault>"
         soup = BeautifulSoup(html, "html.parser")
-        element = soup.find("lockhtml-encrypt")
+        element = soup.find("pagevault")
 
         assert is_already_encrypted(element) is False
 
@@ -263,7 +263,7 @@ class TestLockHtml:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>Secret content</lockhtml-encrypt>
+<pagevault>Secret content</pagevault>
 </body>
 </html>"""
 
@@ -274,26 +274,26 @@ class TestLockHtml:
         # Original content should be gone
         assert "Secret content" not in result
         # Should have injected runtime
-        assert "lockhtml-encrypt" in result.lower()
+        assert "pagevault" in result.lower()
 
     def test_preserves_hint(self):
         """Test hint attribute is preserved."""
-        html = '<lockhtml-encrypt hint="Use the magic word">Secret</lockhtml-encrypt>'
+        html = '<pagevault hint="Use the magic word">Secret</pagevault>'
 
         result = lock_html(html, "password")
         assert 'data-hint="Use the magic word"' in result
 
     def test_preserves_remember(self):
         """Test remember attribute is preserved."""
-        html = '<lockhtml-encrypt remember="local">Secret</lockhtml-encrypt>'
+        html = '<pagevault remember="local">Secret</pagevault>'
 
         result = lock_html(html, "password")
         assert 'data-remember="local"' in result
 
     def test_uses_config_defaults(self):
         """Test uses config defaults for remember."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        config = LockhtmlConfig(defaults=DefaultsConfig(remember="session"))
+        html = "<pagevault>Secret</pagevault>"
+        config = PagevaultConfig(defaults=DefaultsConfig(remember="session"))
 
         result = lock_html(html, "password", config)
         assert 'data-remember="session"' in result
@@ -304,15 +304,15 @@ class TestLockHtml:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>Secret</lockhtml-encrypt>
+<pagevault>Secret</pagevault>
 </body>
 </html>"""
 
         result = lock_html(html, "password")
 
-        assert "data-lockhtml-runtime" in result
+        assert "data-pagevault-runtime" in result
         assert "customElements.define" in result
-        assert ".lockhtml-container" in result
+        assert ".pagevault-container" in result
 
     def test_no_elements_returns_unchanged(self):
         """Test HTML without elements is unchanged."""
@@ -324,7 +324,7 @@ class TestLockHtml:
     def test_reencrypts_already_encrypted(self):
         """Test encrypting already-encrypted elements (composability)."""
         html = (
-            '<lockhtml-encrypt data-encrypted="x">Already encrypted</lockhtml-encrypt>'
+            '<pagevault data-encrypted="x">Already encrypted</pagevault>'
         )
 
         result = lock_html(html, "password")
@@ -336,7 +336,7 @@ class TestLockHtml:
 
     def test_uses_explicit_salt(self):
         """Test encryption uses explicit salt."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         salt = generate_salt()
 
         result1 = lock_html(html, "password", salt=salt)
@@ -346,8 +346,8 @@ class TestLockHtml:
         soup1 = BeautifulSoup(result1, "html.parser")
         soup2 = BeautifulSoup(result2, "html.parser")
 
-        encrypted1 = soup1.find("lockhtml-encrypt")["data-encrypted"]
-        encrypted2 = soup2.find("lockhtml-encrypt")["data-encrypted"]
+        encrypted1 = soup1.find("pagevault")["data-encrypted"]
+        encrypted2 = soup2.find("pagevault")["data-encrypted"]
 
         content1, _meta1 = decrypt(encrypted1, "password")
         assert content1 == "Secret"
@@ -360,7 +360,7 @@ class TestUnlockHtml:
 
     def test_basic_decryption(self):
         """Test basic HTML decryption."""
-        original = "<lockhtml-encrypt>Secret content</lockhtml-encrypt>"
+        original = "<pagevault>Secret content</pagevault>"
         encrypted = lock_html(original, "password")
 
         decrypted = unlock_html(encrypted, "password")
@@ -375,12 +375,12 @@ class TestUnlockHtml:
 <head><title>Test Page</title></head>
 <body>
 <header>Public Header</header>
-<lockhtml-encrypt hint="Hint text">
+<pagevault hint="Hint text">
     <main>
         <h1>Secret Title</h1>
         <p>Secret paragraph.</p>
     </main>
-</lockhtml-encrypt>
+</pagevault>
 <footer>Public Footer</footer>
 </body>
 </html>"""
@@ -398,20 +398,20 @@ class TestUnlockHtml:
 
     def test_removes_runtime(self):
         """Test runtime is removed after decryption."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
-        assert "data-lockhtml-runtime" in encrypted
+        assert "data-pagevault-runtime" in encrypted
 
         decrypted = unlock_html(encrypted, "password")
-        assert "data-lockhtml-runtime" not in decrypted
+        assert "data-pagevault-runtime" not in decrypted
 
     def test_wrong_password_fails(self):
         """Test decryption with wrong password fails."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "correct")
 
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             unlock_html(encrypted, "wrong")
 
     def test_no_elements_returns_unchanged(self):
@@ -423,7 +423,7 @@ class TestUnlockHtml:
 
     def test_preserves_hint_for_reencryption(self):
         """Test hint is preserved as original attribute after decryption."""
-        html = '<lockhtml-encrypt hint="Remember the hint">Secret</lockhtml-encrypt>'
+        html = '<pagevault hint="Remember the hint">Secret</pagevault>'
 
         encrypted = lock_html(html, "password")
         decrypted = unlock_html(encrypted, "password")
@@ -432,13 +432,13 @@ class TestUnlockHtml:
 
 
 class TestMultipleElements:
-    """Tests for multiple lockhtml-encrypt elements."""
+    """Tests for multiple pagevault elements."""
 
     def test_encryption_with_multiple_elements(self):
         """Test encrypting multiple elements."""
         html = """
-        <lockhtml-encrypt hint="hint1">First</lockhtml-encrypt>
-        <lockhtml-encrypt hint="hint2">Second</lockhtml-encrypt>
+        <pagevault hint="hint1">First</pagevault>
+        <pagevault hint="hint2">Second</pagevault>
         """
 
         result = lock_html(html, "password")
@@ -453,9 +453,9 @@ class TestMultipleElements:
     def test_roundtrip_multiple_elements(self):
         """Test encrypt/decrypt roundtrip with multiple elements."""
         html = """
-        <lockhtml-encrypt>First content</lockhtml-encrypt>
+        <pagevault>First content</pagevault>
         <p>Public content</p>
-        <lockhtml-encrypt>Second content</lockhtml-encrypt>
+        <pagevault>Second content</pagevault>
         """
 
         encrypted = lock_html(html, "password")
@@ -467,13 +467,13 @@ class TestMultipleElements:
 
     def test_encrypts_all_elements(self):
         """Test that all elements are encrypted including already-encrypted ones."""
-        from lockhtml.crypto import encrypt as crypto_encrypt
+        from pagevault.crypto import encrypt as crypto_encrypt
 
         enc1 = crypto_encrypt("Already encrypted", password="password")
 
         html = f"""
-        <lockhtml-encrypt data-encrypted="{enc1}"></lockhtml-encrypt>
-        <lockhtml-encrypt>New content</lockhtml-encrypt>
+        <pagevault data-encrypted="{enc1}"></pagevault>
+        <pagevault>New content</pagevault>
         """
 
         result = lock_html(html, "password")
@@ -490,8 +490,8 @@ class TestTemplateCustomization:
 
     def test_custom_colors(self):
         """Test custom colors are applied."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        config = LockhtmlConfig(
+        html = "<pagevault>Secret</pagevault>"
+        config = PagevaultConfig(
             template=TemplateConfig(color_primary="#ff0000", color_secondary="#00ff00")
         )
 
@@ -502,8 +502,8 @@ class TestTemplateCustomization:
 
     def test_custom_text(self):
         """Test custom text is applied."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        config = LockhtmlConfig(
+        html = "<pagevault>Secret</pagevault>"
+        config = PagevaultConfig(
             template=TemplateConfig(
                 title="Custom Title",
                 button_text="Custom Button",
@@ -521,7 +521,7 @@ class TestTemplateCustomization:
 
     def test_custom_css(self):
         """Test custom CSS replaces default styles."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
         custom_css = ".my-custom-class { color: purple; }"
 
         result = lock_html(html, "password", custom_css=custom_css)
@@ -530,12 +530,12 @@ class TestTemplateCustomization:
         assert ".my-custom-class" in result
         assert "color: purple" in result
         # Default CSS should NOT be included
-        assert ".lockhtml-container" not in result
+        assert ".pagevault-container" not in result
 
     def test_custom_css_from_config(self):
         """Test custom CSS from config."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        config = LockhtmlConfig(custom_css=".config-class { font-size: 20px; }")
+        html = "<pagevault>Secret</pagevault>"
+        config = PagevaultConfig(custom_css=".config-class { font-size: 20px; }")
 
         result = lock_html(html, "password", config)
 
@@ -544,8 +544,8 @@ class TestTemplateCustomization:
 
     def test_custom_css_cli_overrides_config(self):
         """Test CLI custom CSS overrides config custom CSS."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
-        config = LockhtmlConfig(custom_css=".config-class { color: red; }")
+        html = "<pagevault>Secret</pagevault>"
+        config = PagevaultConfig(custom_css=".config-class { color: red; }")
         cli_css = ".cli-class { color: blue; }"
 
         result = lock_html(html, "password", config, custom_css=cli_css)
@@ -562,7 +562,7 @@ class TestContentHashIntegrity:
 
     def test_hash_stored_in_encrypted_element(self):
         """Test that content hash is stored during encryption."""
-        html = "<lockhtml-encrypt>Secret content</lockhtml-encrypt>"
+        html = "<pagevault>Secret content</pagevault>"
         expected_hash = content_hash("Secret content")
 
         result = lock_html(html, "password")
@@ -571,7 +571,7 @@ class TestContentHashIntegrity:
 
     def test_hash_removed_after_decryption(self):
         """Test that content hash is removed during decryption."""
-        html = "<lockhtml-encrypt>Secret content</lockhtml-encrypt>"
+        html = "<pagevault>Secret content</pagevault>"
 
         encrypted = lock_html(html, "password")
         assert "data-content-hash=" in encrypted
@@ -582,7 +582,7 @@ class TestContentHashIntegrity:
     def test_hash_preserved_through_roundtrip(self):
         """Test content matches after encrypt/decrypt roundtrip."""
         original_content = "<p>Complex <strong>HTML</strong> content</p>"
-        html = f"<lockhtml-encrypt>{original_content}</lockhtml-encrypt>"
+        html = f"<pagevault>{original_content}</pagevault>"
         original_hash = content_hash(original_content)
 
         encrypted = lock_html(html, "password")
@@ -598,7 +598,7 @@ class TestContentHashIntegrity:
     def test_hash_with_unicode_content(self):
         """Test hash works with unicode content."""
         content = "日本語コンテンツ 🔐 αβγδ"
-        html = f"<lockhtml-encrypt>{content}</lockhtml-encrypt>"
+        html = f"<pagevault>{content}</pagevault>"
         expected_hash = content_hash(content)
 
         result = lock_html(html, "パスワード")
@@ -607,7 +607,7 @@ class TestContentHashIntegrity:
 
     def test_hash_with_empty_content(self):
         """Test hash works with empty content."""
-        html = "<lockhtml-encrypt></lockhtml-encrypt>"
+        html = "<pagevault></pagevault>"
         expected_hash = content_hash("")
 
         result = lock_html(html, "password")
@@ -617,8 +617,8 @@ class TestContentHashIntegrity:
     def test_multiple_elements_have_correct_hashes(self):
         """Test multiple elements each get their own correct hash."""
         html = """
-        <lockhtml-encrypt>First content</lockhtml-encrypt>
-        <lockhtml-encrypt>Second content</lockhtml-encrypt>
+        <pagevault>First content</pagevault>
+        <pagevault>Second content</pagevault>
         """
         hash1 = content_hash("First content")
         hash2 = content_hash("Second content")
@@ -634,7 +634,7 @@ class TestComposableEncryption:
 
     def test_encrypt_already_encrypted_element(self):
         """Test encrypting an already-encrypted element creates nested encryption."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
 
         # First encryption
         encrypted1 = lock_html(html, "password1")
@@ -647,8 +647,8 @@ class TestComposableEncryption:
         soup1 = BeautifulSoup(encrypted1, "html.parser")
         soup2 = BeautifulSoup(encrypted2, "html.parser")
 
-        data1 = soup1.find("lockhtml-encrypt")["data-encrypted"]
-        data2 = soup2.find("lockhtml-encrypt")["data-encrypted"]
+        data1 = soup1.find("pagevault")["data-encrypted"]
+        data2 = soup2.find("pagevault")["data-encrypted"]
 
         # Content should be different (re-encrypted with new password)
         assert data1 != data2
@@ -657,7 +657,7 @@ class TestComposableEncryption:
         """Test nested encryption by wrapping encrypted element in new wrapper."""
         html = """<!DOCTYPE html>
 <html><head><title>Test</title></head><body>
-<lockhtml-encrypt>Secret</lockhtml-encrypt>
+<pagevault>Secret</pagevault>
 </body></html>"""
 
         # First encrypt with inner password
@@ -665,15 +665,15 @@ class TestComposableEncryption:
         assert "data-encrypted=" in encrypted1
         assert "Secret" not in encrypted1
 
-        # Wrap the encrypted element in a new lockhtml-encrypt
-        wrapped = mark_elements(encrypted1, ["lockhtml-encrypt"])
+        # Wrap the encrypted element in a new pagevault
+        wrapped = mark_elements(encrypted1, ["pagevault"])
 
         # Encrypt outer wrapper with different password
         encrypted2 = lock_html(wrapped, "outer")
 
         # Should have 2 encrypted elements (outer wrapping inner)
         soup = BeautifulSoup(encrypted2, "html.parser")
-        encrypted_elements = soup.find_all("lockhtml-encrypt")
+        encrypted_elements = soup.find_all("pagevault")
         outer = encrypted_elements[0]
         assert outer.has_attr("data-encrypted")
 
@@ -689,30 +689,30 @@ class TestComposableEncryption:
 
     def test_reencrypt_replaces_ciphertext(self):
         """Test re-encrypting the same element replaces (not nests) the ciphertext."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
 
         encrypted1 = lock_html(html, "password1")
         encrypted2 = lock_html(encrypted1, "password2")
 
         # Only one encrypted element (replaced, not nested)
         soup = BeautifulSoup(encrypted2, "html.parser")
-        elements = soup.find_all("lockhtml-encrypt")
+        elements = soup.find_all("pagevault")
         assert len(elements) == 1
 
         # The ciphertext should be different from the first encryption
         soup1 = BeautifulSoup(encrypted1, "html.parser")
-        data1 = soup1.find("lockhtml-encrypt")["data-encrypted"]
+        data1 = soup1.find("pagevault")["data-encrypted"]
         data2 = elements[0]["data-encrypted"]
         assert data1 != data2
 
-    def test_wrap_existing_lockhtml_element(self):
-        """Test wrapping an existing lockhtml-encrypt element for nested encryption."""
-        html = '<lockhtml-encrypt data-encrypted="xyz"></lockhtml-encrypt>'
+    def test_wrap_existing_pagevault_element(self):
+        """Test wrapping an existing pagevault element for nested encryption."""
+        html = '<pagevault data-encrypted="xyz"></pagevault>'
 
-        result = mark_elements(html, ["lockhtml-encrypt"])
+        result = mark_elements(html, ["pagevault"])
 
-        # Should be wrapped in another lockhtml-encrypt
-        assert result.count("<lockhtml-encrypt") == 2
+        # Should be wrapped in another pagevault
+        assert result.count("<pagevault") == 2
 
     def test_multi_password_workflow(self):
         """Test encrypting different elements with different passwords."""
@@ -740,7 +740,7 @@ class TestPerElementTitle:
 
     def test_title_attribute_preserved(self):
         """Test title attribute is preserved during encryption."""
-        html = '<lockhtml-encrypt title="Admin Panel">Secret</lockhtml-encrypt>'
+        html = '<pagevault title="Admin Panel">Secret</pagevault>'
 
         result = lock_html(html, "password")
 
@@ -756,7 +756,7 @@ class TestPerElementTitle:
 
     def test_title_preserved_through_roundtrip(self):
         """Test title survives encrypt/decrypt cycle."""
-        html = '<lockhtml-encrypt title="My Title">Secret</lockhtml-encrypt>'
+        html = '<pagevault title="My Title">Secret</pagevault>'
 
         encrypted = lock_html(html, "password")
         assert 'data-title="My Title"' in encrypted
@@ -766,7 +766,7 @@ class TestPerElementTitle:
 
     def test_title_appears_in_js_runtime(self):
         """Test JS runtime uses per-element title."""
-        html = '<lockhtml-encrypt title="Custom Title">Secret</lockhtml-encrypt>'
+        html = '<pagevault title="Custom Title">Secret</pagevault>'
 
         result = lock_html(html, "password")
 
@@ -778,13 +778,13 @@ class TestMarkBody:
     """Tests for mark_body function."""
 
     def test_wraps_body_content(self):
-        """Test basic HTML with body content gets wrapped in lockhtml-encrypt."""
+        """Test basic HTML with body content gets wrapped in pagevault."""
         html = "<html><head><title>Test</title></head><body><p>Hello</p></body></html>"
 
         result = mark_body(html)
 
         soup = BeautifulSoup(result, "html.parser")
-        wrapper = soup.find("lockhtml-encrypt")
+        wrapper = soup.find("pagevault")
         assert wrapper is not None
         assert "Hello" in str(wrapper)
 
@@ -800,17 +800,17 @@ class TestMarkBody:
         soup = BeautifulSoup(result, "html.parser")
         head = soup.find("head")
         assert head is not None
-        # Head should not be inside lockhtml-encrypt
-        assert head.find_parent("lockhtml-encrypt") is None
+        # Head should not be inside pagevault
+        assert head.find_parent("pagevault") is None
         assert "My Title" in str(head)
 
     def test_single_wrapper(self):
-        """Test only one lockhtml-encrypt element is created."""
+        """Test only one pagevault element is created."""
         html = "<html><head></head><body><p>One</p><p>Two</p><p>Three</p></body></html>"
 
         result = mark_body(html)
 
-        assert result.count("<lockhtml-encrypt>") == 1
+        assert result.count("<pagevault>") == 1
 
     def test_no_body_returns_unchanged(self):
         """Test HTML without body tag returns unchanged."""
@@ -818,7 +818,7 @@ class TestMarkBody:
 
         result = mark_body(html)
 
-        assert "<lockhtml-encrypt>" not in result
+        assert "<pagevault>" not in result
 
     def test_empty_body_returns_unchanged(self):
         """Test HTML with empty body returns unchanged."""
@@ -826,7 +826,7 @@ class TestMarkBody:
 
         result = mark_body(html)
 
-        assert "<lockhtml-encrypt>" not in result
+        assert "<pagevault>" not in result
 
     def test_whitespace_only_body_returns_unchanged(self):
         """Test body with only whitespace returns unchanged."""
@@ -834,7 +834,7 @@ class TestMarkBody:
 
         result = mark_body(html)
 
-        assert "<lockhtml-encrypt>" not in result
+        assert "<pagevault>" not in result
 
     def test_hint_attribute(self):
         """Test hint parameter adds attribute to wrapper."""
@@ -876,7 +876,7 @@ class TestMultiUserEncryptDecrypt:
 
     def test_encrypt_with_users_sets_data_mode(self):
         """Test lock_html with users param sets data-mode='user' attribute."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
 
         result = lock_html(html, users={"alice": "pw-a", "bob": "pw-b"})
 
@@ -884,7 +884,7 @@ class TestMultiUserEncryptDecrypt:
 
     def test_decrypt_with_username(self):
         """Test encrypt with users, decrypt with username param works."""
-        html = "<lockhtml-encrypt>Secret for users</lockhtml-encrypt>"
+        html = "<pagevault>Secret for users</pagevault>"
 
         encrypted = lock_html(html, users={"alice": "pw-a"})
         decrypted = unlock_html(encrypted, "pw-a", username="alice")
@@ -897,7 +897,7 @@ class TestMultiUserEncryptDecrypt:
 <html>
 <head><title>Multi-user Test</title></head>
 <body>
-<lockhtml-encrypt>Multi-user secret content</lockhtml-encrypt>
+<pagevault>Multi-user secret content</pagevault>
 </body>
 </html>"""
 
@@ -916,7 +916,7 @@ class TestMultiUserEncryptDecrypt:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>Secret</lockhtml-encrypt>
+<pagevault>Secret</pagevault>
 </body>
 </html>"""
 
@@ -926,7 +926,7 @@ class TestMultiUserEncryptDecrypt:
 
     def test_data_mode_removed_on_decrypt(self):
         """Test data-mode attribute is removed after decryption."""
-        html = "<lockhtml-encrypt>Secret</lockhtml-encrypt>"
+        html = "<pagevault>Secret</pagevault>"
 
         encrypted = lock_html(html, users={"alice": "pw-a"})
         assert 'data-mode="user"' in encrypted
@@ -940,9 +940,9 @@ class TestSyncHtmlKeys:
 
     def test_sync_adds_user(self):
         """Test encrypt with users, sync to add bob, verify bob can decrypt."""
-        from lockhtml.crypto import decrypt as crypto_decrypt
+        from pagevault.crypto import decrypt as crypto_decrypt
 
-        html = "<lockhtml-encrypt>Sync secret</lockhtml-encrypt>"
+        html = "<pagevault>Sync secret</pagevault>"
 
         # Encrypt with alice only
         encrypted = lock_html(html, users={"alice": "pw-a"})
@@ -956,16 +956,16 @@ class TestSyncHtmlKeys:
 
         # Verify bob can decrypt the element's data-encrypted attribute
         soup = BeautifulSoup(result, "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted_data = elem["data-encrypted"]
         content, _meta = crypto_decrypt(encrypted_data, "pw-b", username="bob")
         assert content == "Sync secret"
 
     def test_sync_removes_user(self):
         """Test sync to remove bob, verify bob cannot decrypt."""
-        from lockhtml.crypto import decrypt as crypto_decrypt
+        from pagevault.crypto import decrypt as crypto_decrypt
 
-        html = "<lockhtml-encrypt>Remove user secret</lockhtml-encrypt>"
+        html = "<pagevault>Remove user secret</pagevault>"
 
         # Encrypt with alice and bob
         encrypted = lock_html(html, users={"alice": "pw-a", "bob": "pw-b"})
@@ -979,27 +979,27 @@ class TestSyncHtmlKeys:
 
         # Verify alice can still decrypt
         soup = BeautifulSoup(result, "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted_data = elem["data-encrypted"]
         content, _meta = crypto_decrypt(encrypted_data, "pw-a", username="alice")
         assert content == "Remove user secret"
 
         # Verify bob cannot decrypt
-        with pytest.raises(LockhtmlError):
+        with pytest.raises(PagevaultError):
             crypto_decrypt(encrypted_data, "pw-b", username="bob")
 
     def test_sync_rekey(self):
         """Test sync with rekey=True changes data-encrypted."""
-        from lockhtml.crypto import decrypt as crypto_decrypt
+        from pagevault.crypto import decrypt as crypto_decrypt
 
-        html = "<lockhtml-encrypt>Rekey secret</lockhtml-encrypt>"
+        html = "<pagevault>Rekey secret</pagevault>"
 
         # Encrypt with alice
         encrypted = lock_html(html, users={"alice": "pw-a"})
 
         # Capture original data-encrypted value
         soup_orig = BeautifulSoup(encrypted, "html.parser")
-        original_data = soup_orig.find("lockhtml-encrypt")["data-encrypted"]
+        original_data = soup_orig.find("pagevault")["data-encrypted"]
 
         # Sync with rekey
         result = sync_html_keys(
@@ -1011,7 +1011,7 @@ class TestSyncHtmlKeys:
 
         # Verify data-encrypted value changed (new CEK)
         soup_new = BeautifulSoup(result, "html.parser")
-        new_data = soup_new.find("lockhtml-encrypt")["data-encrypted"]
+        new_data = soup_new.find("pagevault")["data-encrypted"]
         assert new_data != original_data
 
         # Verify alice can still decrypt
@@ -1020,7 +1020,7 @@ class TestSyncHtmlKeys:
 
     def test_sync_sets_data_mode(self):
         """Test sync to multi-user sets data-mode='user'."""
-        html = "<lockhtml-encrypt>Mode secret</lockhtml-encrypt>"
+        html = "<pagevault>Mode secret</pagevault>"
 
         # Encrypt with single password
         encrypted = lock_html(html, password="single-pw")
@@ -1052,15 +1052,15 @@ class TestAutoMetadata:
 
     def test_meta_auto_populated(self):
         """Test lock_html auto-populates meta with encrypted_at and version."""
-        from lockhtml.crypto import decrypt as crypto_decrypt
+        from pagevault.crypto import decrypt as crypto_decrypt
 
-        html = "<lockhtml-encrypt>Meta test</lockhtml-encrypt>"
+        html = "<pagevault>Meta test</pagevault>"
 
         result = lock_html(html, "password")
 
         # Extract encrypted data and decrypt to inspect meta
         soup = BeautifulSoup(result, "html.parser")
-        elem = soup.find("lockhtml-encrypt")
+        elem = soup.find("pagevault")
         encrypted_data = elem["data-encrypted"]
         content, meta = crypto_decrypt(encrypted_data, "password")
 
@@ -1071,7 +1071,7 @@ class TestAutoMetadata:
 
     def test_content_hash_unaffected_by_meta(self):
         """Test content hash is computed on inner HTML, not on meta."""
-        html = "<lockhtml-encrypt>Hash test content</lockhtml-encrypt>"
+        html = "<pagevault>Hash test content</pagevault>"
         expected_hash = content_hash("Hash test content")
 
         result = lock_html(html, "password")
@@ -1080,14 +1080,50 @@ class TestAutoMetadata:
         assert f'data-content-hash="{expected_hash}"' in result
 
 
+class TestMultiUserUnlockError:
+    """Tests for helpful error when unlocking multi-user files without username."""
+
+    def test_multiuser_unlock_without_username_error(self):
+        """Test clear error message when unlocking multi-user file without -u flag."""
+        html = "<pagevault>Secret</pagevault>"
+
+        # Lock with multi-user mode
+        encrypted = lock_html(html, users={"alice": "pw-a", "bob": "pw-b"})
+        assert 'data-mode="user"' in encrypted
+
+        # Try to unlock without username
+        with pytest.raises(PagevaultError, match="multi-user encryption"):
+            unlock_html(encrypted, "pw-a")  # No username provided
+
+    def test_multiuser_unlock_error_mentions_flag(self):
+        """Test error message mentions -u USERNAME flag."""
+        html = "<pagevault>Secret</pagevault>"
+        encrypted = lock_html(html, users={"alice": "pw-a"})
+
+        with pytest.raises(PagevaultError, match="-u USERNAME"):
+            unlock_html(encrypted, "pw-a")
+
+    def test_single_user_unlock_works_without_username(self):
+        """Test single-user files work without username (no regression)."""
+        html = "<pagevault>Secret</pagevault>"
+
+        encrypted = lock_html(html, password="single-pw")
+        # No data-mode="user" attribute
+        assert 'data-mode="user"' not in encrypted
+
+        # Unlock should work without username
+        decrypted = unlock_html(encrypted, "single-pw")
+        assert "Secret" in decrypted
+
+
 class TestBackwardCompat:
     """Tests for backward compatibility of old function name aliases."""
 
     def test_encrypt_html_alias_works(self):
         """Test that the old encrypt_html alias still works."""
-        from lockhtml.parser import encrypt_html
+        from pagevault.parser import encrypt_html
 
-        html = "<lockhtml-encrypt>Backward compat test</lockhtml-encrypt>"
+        html = "<pagevault>Backward compat test</pagevault>"
 
         result = encrypt_html(html, "password")
 
@@ -1096,9 +1132,9 @@ class TestBackwardCompat:
 
     def test_decrypt_html_alias_works(self):
         """Test that the old decrypt_html alias still works."""
-        from lockhtml.parser import decrypt_html, encrypt_html
+        from pagevault.parser import decrypt_html, encrypt_html
 
-        html = "<lockhtml-encrypt>Alias roundtrip</lockhtml-encrypt>"
+        html = "<pagevault>Alias roundtrip</pagevault>"
 
         encrypted = encrypt_html(html, "password")
         decrypted = decrypt_html(encrypted, "password")
@@ -1107,20 +1143,20 @@ class TestBackwardCompat:
 
     def test_wrap_elements_alias_works(self):
         """Test that the old wrap_elements_for_encryption alias still works."""
-        from lockhtml.parser import wrap_elements_for_encryption
+        from pagevault.parser import wrap_elements_for_encryption
 
         html = '<html><body><div id="secret">Secret</div></body></html>'
 
         result = wrap_elements_for_encryption(html, ["#secret"])
 
-        assert "<lockhtml-encrypt>" in result
+        assert "<pagevault>" in result
 
     def test_wrap_body_alias_works(self):
         """Test that the old wrap_body_for_encryption alias still works."""
-        from lockhtml.parser import wrap_body_for_encryption
+        from pagevault.parser import wrap_body_for_encryption
 
         html = "<html><head></head><body><p>Content</p></body></html>"
 
         result = wrap_body_for_encryption(html)
 
-        assert "<lockhtml-encrypt>" in result
+        assert "<pagevault>" in result

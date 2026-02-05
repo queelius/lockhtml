@@ -1,12 +1,12 @@
-"""Tests for lockhtml.cli module."""
+"""Tests for pagevault.cli module."""
 
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from lockhtml.cli import main
-from lockhtml.config import CONFIG_FILENAME
+from pagevault.cli import main
+from pagevault.config import CONFIG_FILENAME
 
 
 @pytest.fixture
@@ -17,15 +17,15 @@ def runner():
 
 @pytest.fixture
 def sample_html():
-    """Sample HTML with lockhtml-encrypt element."""
+    """Sample HTML with pagevault element."""
     return """<!DOCTYPE html>
 <html>
 <head><title>Test</title></head>
 <body>
 <header>Public Header</header>
-<lockhtml-encrypt hint="Password hint">
+<pagevault hint="Password hint">
 <main>Secret content here</main>
-</lockhtml-encrypt>
+</pagevault>
 <footer>Public Footer</footer>
 </body>
 </html>"""
@@ -107,7 +107,7 @@ class TestConfigWhere:
         result = runner.invoke(main, ["config", "where", "-d", str(tmp_path)])
 
         assert result.exit_code == 0
-        assert "No .lockhtml.yaml found" in result.output
+        assert "No .pagevault.yaml found" in result.output
 
 
 class TestLock:
@@ -445,8 +445,8 @@ class TestSelectorLock:
     """Tests for lock command with --selector option."""
 
     @pytest.fixture
-    def html_without_lockhtml(self):
-        """HTML without lockhtml-encrypt elements."""
+    def html_without_pagevault(self):
+        """HTML without pagevault elements."""
         return """<!DOCTYPE html>
 <html>
 <head><title>Test</title></head>
@@ -459,11 +459,11 @@ class TestSelectorLock:
 </html>"""
 
     def test_selector_by_id(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test locking element by ID selector."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -493,11 +493,11 @@ class TestSelectorLock:
         assert "Public Header" in content
 
     def test_selector_by_class(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test locking element by class selector."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -526,11 +526,11 @@ class TestSelectorLock:
         assert "Private section" not in content
 
     def test_multiple_selectors(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test locking multiple elements with multiple selectors."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -562,11 +562,11 @@ class TestSelectorLock:
         assert "Private section" not in content
 
     def test_selector_with_hint(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test selector with password hint."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -595,11 +595,11 @@ class TestSelectorLock:
         assert 'data-hint="Use the magic word"' in content
 
     def test_selector_with_remember(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test selector with remember mode."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -628,11 +628,11 @@ class TestSelectorLock:
         assert 'data-remember="local"' in content
 
     def test_selector_dry_run(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test selector with dry run mode."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -659,11 +659,11 @@ class TestSelectorLock:
         assert not output_dir.exists()
 
     def test_selector_no_match_skips(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test that files with no matching selectors are skipped."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -689,11 +689,11 @@ class TestSelectorLock:
         assert "1 skipped" in result.output
 
     def test_selector_with_title(
-        self, runner, tmp_path, html_without_lockhtml, sample_config
+        self, runner, tmp_path, html_without_pagevault, sample_config
     ):
         """Test selector with custom title."""
         html_path = tmp_path / "index.html"
-        html_path.write_text(html_without_lockhtml)
+        html_path.write_text(html_without_pagevault)
 
         config_path = tmp_path / CONFIG_FILENAME
         config_path.write_text(sample_config)
@@ -794,7 +794,7 @@ class TestSelectorLock:
 
 
 class TestDefaultBodyLock:
-    """Tests for default body wrapping behavior (no selectors, no lockhtml elements)."""
+    """Tests for default body wrapping behavior (no selectors, no pagevault elements)."""
 
     @pytest.fixture
     def sample_config(self):
@@ -808,10 +808,10 @@ defaults:
   auto_prompt: true
 """
 
-    def test_locks_body_without_lockhtml_elements(
+    def test_locks_body_without_pagevault_elements(
         self, runner, tmp_path, sample_config
     ):
-        """Test HTML without lockhtml elements gets body wrapped."""
+        """Test HTML without pagevault elements gets body wrapped."""
         html_path = tmp_path / "index.html"
         html_path.write_text("""<!DOCTYPE html>
 <html>
@@ -995,7 +995,7 @@ class TestMark:
 
         # File should be modified in-place
         content = html_path.read_text()
-        assert "lockhtml-encrypt" in content
+        assert "pagevault" in content
         assert "Secret content here" in content
         assert "Public Header" in content
 
@@ -1023,18 +1023,18 @@ class TestMark:
         assert "1 file(s) marked" in result.output
 
         content = html_path.read_text()
-        assert "lockhtml-encrypt" in content
+        assert "pagevault" in content
 
     def test_mark_skips_already_marked(self, runner, tmp_path):
-        """Test that files already containing lockhtml-encrypt are skipped."""
+        """Test that files already containing pagevault are skipped."""
         html_path = tmp_path / "index.html"
         html_path.write_text("""<!DOCTYPE html>
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>
+<pagevault>
 <p>Already marked content</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1079,7 +1079,7 @@ class TestMark:
         assert "1 file(s) marked" in result.output
 
         content = html_path.read_text()
-        assert "lockhtml-encrypt" in content
+        assert "pagevault" in content
         assert "Contact admin" in content
         assert "Members Only" in content
 
@@ -1118,8 +1118,8 @@ class TestMark:
 
         content1 = (tmp_path / "site" / "index.html").read_text()
         content2 = (tmp_path / "site" / "sub" / "page.html").read_text()
-        assert "lockhtml-encrypt" in content1
-        assert "lockhtml-encrypt" in content2
+        assert "pagevault" in content1
+        assert "pagevault" in content2
 
 
 class TestMultiUserCli:
@@ -1143,9 +1143,9 @@ users:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt hint="Multi-user">
+<pagevault hint="Multi-user">
 <p>Secret for multiple users</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1181,9 +1181,9 @@ users:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>
+<pagevault>
 <p>Alice and Bob's secret</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1235,9 +1235,9 @@ users:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>
+<pagevault>
 <p>Single user override</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1310,9 +1310,9 @@ users:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>
+<pagevault>
 <p>Sync test content</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1374,9 +1374,9 @@ users:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>
+<pagevault>
 <p>Dry run content</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1429,7 +1429,7 @@ salt: "0123456789abcdef0123456789abcdef"
 """)
 
         html_path = tmp_path / "index.html"
-        html_path.write_text("<lockhtml-encrypt>content</lockhtml-encrypt>")
+        html_path.write_text("<pagevault>content</pagevault>")
 
         result = runner.invoke(
             main,
@@ -1485,9 +1485,9 @@ managed:
 <html>
 <head><title>Test</title></head>
 <body>
-<lockhtml-encrypt>
+<pagevault>
 <p>Managed content</p>
-</lockhtml-encrypt>
+</pagevault>
 </body>
 </html>""")
 
@@ -1561,7 +1561,7 @@ salt: "0123456789abcdef0123456789abcdef"
 
         assert result.exit_code == 0
         assert "Added user 'alice'" in result.output
-        assert "lockhtml sync" in result.output
+        assert "pagevault sync" in result.output
 
         # Verify written to file
         import yaml
@@ -1671,7 +1671,7 @@ users:
 
         assert result.exit_code == 0
         assert "Removed user 'bob'" in result.output
-        assert "lockhtml sync" in result.output
+        assert "pagevault sync" in result.output
 
         import yaml
 
@@ -1788,7 +1788,7 @@ users:
 
         assert result.exit_code == 0
         assert "Password updated for 'alice'" in result.output
-        assert "lockhtml sync" in result.output
+        assert "pagevault sync" in result.output
 
         import yaml
 
@@ -1828,6 +1828,384 @@ users:
         assert "not found" in result.output
 
 
+class TestLockWithUsername:
+    """Tests for lock command with -u flag."""
+
+    @pytest.fixture
+    def sample_config(self):
+        """Sample configuration file content."""
+        return """
+password: "test-password"
+salt: "0123456789abcdef0123456789abcdef"
+"""
+
+    def test_lock_with_username_and_password(self, runner, tmp_path, sample_config):
+        """Test -u alice -p secret creates single-user file for alice."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<pagevault>Secret for alice</pagevault>
+</body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        output_dir = tmp_path / "locked"
+
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(output_dir),
+                "-u",
+                "alice",
+                "-p",
+                "secret",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "1 file(s) locked" in result.output
+
+        # Check output has data-mode="user" (multi-user format for single user)
+        content = (output_dir / "index.html").read_text()
+        assert 'data-mode="user"' in content
+        assert "data-encrypted=" in content
+        assert "Secret for alice" not in content
+
+    def test_lock_username_without_password_fails(
+        self, runner, tmp_path, sample_config
+    ):
+        """Test -u alone without -p produces an error."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("<pagevault>Secret</pagevault>")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-u",
+                "alice",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "-u" in result.output or "username" in result.output.lower()
+        assert "-p" in result.output or "password" in result.output.lower()
+
+    def test_lock_username_password_can_be_unlocked(
+        self, runner, tmp_path, sample_config
+    ):
+        """Test file locked with -u -p can be unlocked with same credentials."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<pagevault>Alice's secret</pagevault>
+</body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock with -u -p
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(locked_dir),
+                "-u",
+                "alice",
+                "-p",
+                "secret",
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Unlock with same credentials
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-d",
+                str(unlocked_dir),
+                "-u",
+                "alice",
+                "-p",
+                "secret",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "1 file(s) unlocked" in result.output
+
+        content = (unlocked_dir / "index.html").read_text()
+        assert "Alice's secret" in content
+
+
+class TestUnlockAutoPassword:
+    """Tests for unlock command with automatic password lookup."""
+
+    @pytest.fixture
+    def sample_users_config(self):
+        """Multi-user configuration file content."""
+        return """
+password: "fallback"
+salt: "0123456789abcdef0123456789abcdef"
+users:
+  alice: "pw-alice"
+  bob: "pw-bob"
+"""
+
+    @pytest.fixture
+    def sample_users_config_with_default(self):
+        """Multi-user configuration with default user."""
+        return """
+password: "fallback"
+salt: "0123456789abcdef0123456789abcdef"
+user: alice
+users:
+  alice: "pw-alice"
+  bob: "pw-bob"
+"""
+
+    def test_unlock_auto_password_from_config(
+        self, runner, tmp_path, sample_users_config
+    ):
+        """Test -u alice uses password from config automatically."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<pagevault>Auto password secret</pagevault>
+</body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_users_config)
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock with users config
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(locked_dir),
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Unlock with -u only (no -p) - password should come from config
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-c",
+                str(config_path),
+                "-d",
+                str(unlocked_dir),
+                "-u",
+                "alice",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "1 file(s) unlocked" in result.output
+
+        content = (unlocked_dir / "index.html").read_text()
+        assert "Auto password secret" in content
+
+    def test_unlock_uses_default_user(
+        self, runner, tmp_path, sample_users_config_with_default
+    ):
+        """Test unlock without -u uses default user from config."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<pagevault>Default user secret</pagevault>
+</body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_users_config_with_default)
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock with users config
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(locked_dir),
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Unlock without -u flag - should use default user 'alice' from config
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-c",
+                str(config_path),
+                "-d",
+                str(unlocked_dir),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "1 file(s) unlocked" in result.output
+
+        content = (unlocked_dir / "index.html").read_text()
+        assert "Default user secret" in content
+
+    def test_unlock_explicit_user_overrides_default(
+        self, runner, tmp_path, sample_users_config_with_default
+    ):
+        """Test -u bob overrides default user alice."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<pagevault>Override default secret</pagevault>
+</body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_users_config_with_default)
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock with users config
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(locked_dir),
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Unlock with -u bob (overrides default alice)
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-c",
+                str(config_path),
+                "-d",
+                str(unlocked_dir),
+                "-u",
+                "bob",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "1 file(s) unlocked" in result.output
+
+        content = (unlocked_dir / "index.html").read_text()
+        assert "Override default secret" in content
+
+    def test_unlock_multiuser_without_username_helpful_error(
+        self, runner, tmp_path, sample_users_config
+    ):
+        """Test unlocking multi-user file without -u gives helpful error."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<pagevault>Multi-user secret</pagevault>
+</body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        # Config without default user
+        config_path.write_text(sample_users_config)
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock with users config
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(locked_dir),
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Create a different config without users for unlock (simulating no config)
+        simple_config_path = tmp_path / "simple.yaml"
+        simple_config_path.write_text('password: "wrong"\n')
+
+        # Unlock without -u and without default user - should get helpful error
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-c",
+                str(simple_config_path),
+                "-d",
+                str(unlocked_dir),
+            ],
+        )
+
+        # Should fail with helpful error about multi-user encryption
+        assert result.exit_code == 0 or "multi-user" in result.output.lower()
+
+
 class TestVersion:
     """Tests for version command."""
 
@@ -1836,5 +2214,5 @@ class TestVersion:
         result = runner.invoke(main, ["--version"])
 
         assert result.exit_code == 0
-        assert "lockhtml" in result.output
-        assert "0.2.0" in result.output
+        assert "pagevault" in result.output
+        assert "1.0.0" in result.output

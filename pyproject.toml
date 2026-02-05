@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lockhtml"
+name = "pagevault"
 version = "0.2.0"
 description = "Password-protect regions of HTML files for static hosting"
 readme = "README.md"
@@ -41,14 +41,14 @@ dev = [
 ]
 
 [project.scripts]
-lockhtml = "lockhtml.cli:main"
+pagevault = "pagevault.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/lockhtml"
-Repository = "https://github.com/yourusername/lockhtml"
+Homepage = "https://github.com/queelius/pagevault"
+Repository = "https://github.com/queelius/pagevault"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lockhtml"]
+packages = ["src/pagevault"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -63,11 +63,11 @@ select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # parser.py and wrap.py contain inline JS/CSS in f-strings that can't be line-wrapped
-"src/lockhtml/parser.py" = ["E501"]
-"src/lockhtml/wrap.py" = ["E501"]
+"src/pagevault/parser.py" = ["E501"]
+"src/pagevault/wrap.py" = ["E501"]
 
 [tool.coverage.run]
-source = ["src/lockhtml"]
+source = ["src/pagevault"]
 branch = true
 
 [tool.coverage.report]

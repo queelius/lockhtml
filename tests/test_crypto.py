@@ -1,4 +1,4 @@
-"""Tests for lockhtml.crypto module."""
+"""Tests for pagevault.crypto module."""
 
 import base64
 import json
@@ -6,10 +6,10 @@ import os
 
 import pytest
 
-from lockhtml.crypto import (
+from pagevault.crypto import (
     ITERATIONS,
     SALT_LENGTH,
-    LockhtmlError,
+    PagevaultError,
     _unwrap_key,
     _wrap_key,
     content_hash,
@@ -88,7 +88,7 @@ class TestEncryptDecrypt:
 
         ciphertext = encrypt(plaintext, password=password)
 
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             decrypt(ciphertext, wrong_password)
 
     def test_different_ciphertext_each_time(self):
@@ -125,7 +125,7 @@ class TestEncryptDecrypt:
 
     def test_invalid_salt_length(self):
         """Test encryption with wrong salt length fails."""
-        with pytest.raises(LockhtmlError, match="Salt must be"):
+        with pytest.raises(PagevaultError, match="Salt must be"):
             encrypt("test", password="password", salt=b"short")
 
 
@@ -167,27 +167,27 @@ class TestCiphertextFormat:
 
     def test_invalid_base64_fails(self):
         """Test decryption of invalid base64 fails."""
-        with pytest.raises(LockhtmlError, match="Invalid base64"):
+        with pytest.raises(PagevaultError, match="Invalid base64"):
             decrypt("not-valid-base64!!!", "password")
 
     def test_invalid_json_fails(self):
         """Test decryption of invalid JSON fails."""
         invalid = base64.b64encode(b"not json").decode()
-        with pytest.raises(LockhtmlError, match="Invalid JSON"):
+        with pytest.raises(PagevaultError, match="Invalid JSON"):
             decrypt(invalid, "password")
 
     def test_missing_version_fails(self):
         """Test decryption with missing version fails."""
         payload = {"salt": "AA==", "iv": "AA==", "ct": "AA==", "keys": []}
         invalid = base64.b64encode(json.dumps(payload).encode()).decode()
-        with pytest.raises(LockhtmlError, match="Unsupported format version"):
+        with pytest.raises(PagevaultError, match="Unsupported format version"):
             decrypt(invalid, "password")
 
     def test_wrong_version_fails(self):
         """Test decryption with wrong version fails."""
         payload = {"v": 99, "salt": "AA==", "iv": "AA==", "ct": "AA==", "keys": []}
         invalid = base64.b64encode(json.dumps(payload).encode()).decode()
-        with pytest.raises(LockhtmlError, match="Unsupported format version"):
+        with pytest.raises(PagevaultError, match="Unsupported format version"):
             decrypt(invalid, "password")
 
     def test_missing_fields_fail(self):
@@ -203,7 +203,7 @@ class TestCiphertextFormat:
             del payload[missing]
             invalid = base64.b64encode(json.dumps(payload).encode()).decode()
             with pytest.raises(
-                LockhtmlError, match=f"Missing required field: {missing}"
+                PagevaultError, match=f"Missing required field: {missing}"
             ):
                 decrypt(invalid, "password")
 
@@ -240,12 +240,12 @@ class TestSaltFunctions:
 
     def test_hex_to_salt_invalid(self):
         """Test invalid hex string fails."""
-        with pytest.raises(LockhtmlError, match="Invalid hex"):
+        with pytest.raises(PagevaultError, match="Invalid hex"):
             hex_to_salt("not-hex!")
 
     def test_hex_to_salt_wrong_length(self):
         """Test wrong length hex string fails."""
-        with pytest.raises(LockhtmlError, match="must be"):
+        with pytest.raises(PagevaultError, match="must be"):
             hex_to_salt("0123")  # Too short
 
 
@@ -324,7 +324,7 @@ class TestMultiUser:
 
         ciphertext = encrypt(plaintext, users=users)
 
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             decrypt(ciphertext, "pw-a", username="charlie")
 
     def test_multiuser_wrong_password_fails(self):
@@ -334,17 +334,17 @@ class TestMultiUser:
 
         ciphertext = encrypt(plaintext, users=users)
 
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             decrypt(ciphertext, "wrong-pw", username="alice")
 
     def test_cannot_specify_both_password_and_users(self):
-        """Specifying both password and users should raise LockhtmlError."""
-        with pytest.raises(LockhtmlError, match="Cannot specify both"):
+        """Specifying both password and users should raise PagevaultError."""
+        with pytest.raises(PagevaultError, match="Cannot specify both"):
             encrypt("test", password="pw", users={"alice": "pw-a"})
 
     def test_must_specify_password_or_users(self):
-        """Specifying neither password nor users should raise LockhtmlError."""
-        with pytest.raises(LockhtmlError, match="Must specify either"):
+        """Specifying neither password nor users should raise PagevaultError."""
+        with pytest.raises(PagevaultError, match="Must specify either"):
             encrypt("test")
 
     def test_shared_salt_across_key_blobs(self):
@@ -491,7 +491,7 @@ class TestRewrapKeys:
         assert content_a == plaintext
 
         # Bob can no longer decrypt
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             decrypt(rewrapped, "pw-b", username="bob")
 
     def test_rewrap_change_password(self):
@@ -511,7 +511,7 @@ class TestRewrapKeys:
         assert content == plaintext
 
         # Old password no longer works
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             decrypt(rewrapped, "pw1", username="alice")
 
     def test_rewrap_single_password_to_users(self):
@@ -531,7 +531,7 @@ class TestRewrapKeys:
         assert content == plaintext
 
         # Old single password no longer works
-        with pytest.raises(LockhtmlError, match="wrong password"):
+        with pytest.raises(PagevaultError, match="wrong password"):
             decrypt(rewrapped, "pw")
 
     def test_rekey_generates_new_ciphertext(self):
@@ -558,10 +558,10 @@ class TestRewrapKeys:
         assert orig_data["iv"] != new_data["iv"]
 
     def test_rewrap_requires_valid_old_credentials(self):
-        """Rewrap with wrong old credentials should raise LockhtmlError."""
+        """Rewrap with wrong old credentials should raise PagevaultError."""
         ciphertext = encrypt("secret", password="correct-pw")
 
-        with pytest.raises(LockhtmlError, match="Cannot recover CEK"):
+        with pytest.raises(PagevaultError, match="Cannot recover CEK"):
             rewrap_keys(
                 ciphertext,
                 old_password="wrong-pw",
@@ -569,11 +569,11 @@ class TestRewrapKeys:
             )
 
     def test_rewrap_requires_new_target(self):
-        """Rewrap without new_users or new_password should raise LockhtmlError."""
+        """Rewrap without new_users or new_password should raise PagevaultError."""
         ciphertext = encrypt("secret", password="pw")
 
         with pytest.raises(
-            LockhtmlError, match="Must provide new_users or new_password"
+            PagevaultError, match="Must provide new_users or new_password"
         ):
             rewrap_keys(
                 ciphertext,

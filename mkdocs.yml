@@ -1,0 +1,57 @@
+site_name: pagevault
+site_description: Password-protect semi-private content on static sites
+repo_url: https://github.com/queelius/pagevault
+repo_name: pagevault
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  palette:
+  - scheme: default
+    primary: indigo
+    accent: indigo
+    toggle:
+      icon: material/brightness-7
+      name: Switch to dark mode
+  - scheme: slate
+    primary: indigo
+    accent: indigo
+    toggle:
+      icon: material/brightness-4
+      name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.instant
+    - navigation.tracking
+    - search.suggest
+
+markdown_extensions:
+- pymdownx.highlight:
+    use_pygments: true
+- pymdownx.superfences
+- pymdownx.tabbed
+- admonition
+- pymdownx.details
+- toc
+- attr_list
+- md_in_html
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - CLI Reference: cli-reference.md
+  - Configuration: configuration.md
+  - Use Cases: use-cases.md
+  - Security: security.md
+  - FAQ: faq.md
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/queelius/pagevault
