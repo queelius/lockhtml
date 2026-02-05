@@ -48,8 +48,6 @@ nav:
 
 plugins:
   - search
-  - minify:
-      minify_html: true
 
 extra:
   social:
