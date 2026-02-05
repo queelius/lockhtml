@@ -976,7 +976,7 @@ def _get_jszip_shim() -> str:
         return compressedData;
       } else if (entry.compression === 8) {
         // Deflate
-        const ds = new DecompressionStream('raw');
+        const ds = new DecompressionStream('deflate-raw');
         const writer = ds.writable.getWriter();
         const reader = ds.readable.getReader();
 
@@ -1014,7 +1014,13 @@ def _get_jszip_shim() -> str:
 
 
 def _get_site_renderer_js() -> str:
-    """Generate the site renderer JS for URL rewriting."""
+    """Generate the site renderer JS for URL rewriting.
+
+    Uses data URIs instead of blob URLs to avoid cross-origin issues when
+    the wrapped HTML is opened from file:// (where blob:null origins are
+    opaque and can't be shared between parent and iframe). Internal page
+    navigation is handled via postMessage from an injected interceptor script.
+    """
     return """
 // lockhtml site renderer
 (function() {
@@ -1027,93 +1033,175 @@ def _get_site_renderer_js() -> str:
       const zip = new window.__lockhtml_ZipReader(zipBytes.buffer);
       const fileNames = zip.getFileNames();
 
-      // Build blob URL map
-      const blobMap = {};
+      // Load all files and build resource map
+      const resources = {};
+      const htmlFiles = new Set();
+
       for (const name of fileNames) {
         const data = await zip.getFile(name);
-        if (data) {
-          const ext = name.split('.').pop().toLowerCase();
-          const mime = getMimeForExt(ext);
-          const blob = new Blob([data], { type: mime });
-          blobMap[name] = URL.createObjectURL(blob);
-        }
+        if (!data) continue;
+        const ext = name.split('.').pop().toLowerCase();
+        const mime = getMimeForExt(ext);
+        resources[name] = { data: data, mime: mime, uri: null };
+        if (mime === 'text/html') htmlFiles.add(name);
       }
 
-      // Load entry point
-      const entryData = await zip.getFile(entry);
-      if (!entryData) {
-        container.innerHTML = '<div class="lockhtml-error">Entry point not found: ' + entry + '</div>';
-        return;
+      // Lazily convert binary data to data URI (cached)
+      function toDataUri(name) {
+        var r = resources[name];
+        if (!r) return null;
+        if (!r.uri) r.uri = 'data:' + r.mime + ';base64,' + uint8ToBase64(r.data);
+        return r.uri;
       }
 
-      let htmlContent = new TextDecoder().decode(entryData);
+      // Get HTML file content as text
+      function getHtml(name) {
+        var r = resources[name];
+        if (!r) return null;
+        return new TextDecoder().decode(r.data);
+      }
 
-      // Rewrite URLs in HTML
-      htmlContent = rewriteUrls(htmlContent, blobMap);
+      // Rewrite resource URLs in HTML to data URIs
+      function rewriteUrls(html, fromPage) {
+        var attrPattern = /(src|href|srcset|poster|action)=(["'])([^"']+?)\\2/gi;
+        html = html.replace(attrPattern, function(match, attr, quote, url) {
+          if (url.startsWith('http://') || url.startsWith('https://') ||
+              url.startsWith('//') || url.startsWith('data:') ||
+              url.startsWith('#') || url.startsWith('javascript:') ||
+              url.startsWith('mailto:')) {
+            return match;
+          }
+          var clean = url.split('#')[0].split('?')[0];
+          var resolved = resolvePath(fromPage, clean);
+          // Leave <a href> to HTML pages alone — nav interceptor handles them
+          if (attr.toLowerCase() === 'href' && htmlFiles.has(resolved)) {
+            return match;
+          }
+          var uri = toDataUri(resolved);
+          if (uri) return attr + '=' + quote + uri + quote;
+          return match;
+        });
 
-      // Display in iframe via blob URL
-      const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
-      const htmlUrl = URL.createObjectURL(htmlBlob);
+        // Rewrite CSS url() references
+        html = html.replace(/url\\((['"]?)([^)'"]+?)\\1\\)/gi, function(match, quote, url) {
+          if (url.startsWith('http://') || url.startsWith('https://') ||
+              url.startsWith('data:') || url.startsWith('#')) {
+            return match;
+          }
+          var resolved = resolvePath(fromPage, url);
+          var uri = toDataUri(resolved);
+          if (uri) return 'url(' + quote + uri + quote + ')';
+          return match;
+        });
 
+        // Rewrite quoted strings that match known resource paths.
+        // Catches dynamic JS references like img.src = imageData.url
+        // where the URL is stored in JSON/JS as "media/xxx.png".
+        html = html.replace(/(["'])((?:[a-zA-Z0-9_\\-./]+\\/)?[a-zA-Z0-9_\\-.]+\\.[a-zA-Z0-9]{1,10})\\1/g, function(match, quote, val) {
+          // Skip data URIs and absolute URLs
+          if (val.indexOf('://') !== -1 || val.startsWith('data:')) return match;
+          var clean = val.split('#')[0].split('?')[0];
+          var resolved = resolvePath(fromPage, clean);
+          // Only replace if it's a known non-HTML resource
+          if (resources[resolved] && !htmlFiles.has(resolved)) {
+            var uri = toDataUri(resolved);
+            if (uri) return quote + uri + quote;
+          }
+          return match;
+        });
+
+        return html;
+      }
+
+      // Track current page for relative path resolution
+      var currentPage = entry;
+      var currentBlobUrl = null;
+
+      // Create iframe
       container.innerHTML = '';
-      const iframe = document.createElement('iframe');
+      var iframe = document.createElement('iframe');
       iframe.className = 'lockhtml-site-frame';
-      iframe.src = htmlUrl;
       iframe.sandbox = 'allow-scripts allow-same-origin';
       container.appendChild(iframe);
+
+      function renderPage(pageName) {
+        var html = getHtml(pageName);
+        if (!html) return false;
+        currentPage = pageName;
+        html = rewriteUrls(html, pageName);
+        html = injectNavScript(html);
+        // Use blob URL (not srcdoc) so the iframe has a real URL context
+        // where location.hash, history.pushState, etc. work normally.
+        // Resources are already inlined as data URIs, so no cross-origin issue.
+        if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+        iframe.src = currentBlobUrl;
+        return true;
+      }
+
+      // Listen for internal link clicks from iframe
+      window.addEventListener('message', function(e) {
+        if (!e.data || e.data.type !== 'lockhtml-nav') return;
+        var href = e.data.href;
+        var clean = href.split('#')[0].split('?')[0];
+        if (!clean) return;
+        var target = resolvePath(currentPage, clean);
+        if (htmlFiles.has(target)) {
+          renderPage(target);
+        }
+      });
+
+      // Load entry page
+      if (!renderPage(entry)) {
+        container.innerHTML = '<div class="lockhtml-error">Entry point not found: ' + entry + '</div>';
+      }
     } catch (e) {
       container.innerHTML = '<div class="lockhtml-error">Failed to load site: ' + e.message + '</div>';
     }
   };
 
-  function rewriteUrls(html, blobMap) {
-    // Rewrite src, href, srcset, poster, action attributes
-    const attrPattern = /(src|href|srcset|poster|action)=(["'])([^"']+?)\\2/gi;
-    html = html.replace(attrPattern, (match, attr, quote, url) => {
-      if (url.startsWith('http://') || url.startsWith('https://') ||
-          url.startsWith('//') || url.startsWith('data:') ||
-          url.startsWith('#') || url.startsWith('javascript:')) {
-        return match;
-      }
-      // Normalize path
-      const normalized = normalizePath(url);
-      if (blobMap[normalized]) {
-        return attr + '=' + quote + blobMap[normalized] + quote;
-      }
-      return match;
-    });
-
-    // Rewrite CSS url() references
-    html = html.replace(/url\\(([\"']?)([^)\"']+?)\\1\\)/gi, (match, quote, url) => {
-      if (url.startsWith('http://') || url.startsWith('https://') ||
-          url.startsWith('data:') || url.startsWith('#')) {
-        return match;
-      }
-      const normalized = normalizePath(url);
-      if (blobMap[normalized]) {
-        return 'url(' + quote + blobMap[normalized] + quote + ')';
-      }
-      return match;
-    });
-
-    return html;
+  function uint8ToBase64(data) {
+    var binary = '';
+    var len = data.length;
+    for (var i = 0; i < len; i += 8192) {
+      binary += String.fromCharCode.apply(null, data.subarray(i, Math.min(i + 8192, len)));
+    }
+    return btoa(binary);
   }
 
-  function normalizePath(path) {
-    // Remove leading ./
-    path = path.replace(/^\\.\\//g, '');
-    // Resolve ../ segments
-    const parts = path.split('/');
-    const resolved = [];
-    for (const part of parts) {
-      if (part === '..') resolved.pop();
-      else if (part !== '.' && part !== '') resolved.push(part);
+  function injectNavScript(html) {
+    // Intercept clicks on internal links and forward to parent via postMessage.
+    // Split 'script' tags to avoid closing the outer <script> in the wrapper HTML.
+    var tag = '<scr' + 'ipt>document.addEventListener("click",function(e){' +
+      'var a=e.target.closest("a");if(!a)return;' +
+      'var h=a.getAttribute("href");' +
+      'if(!h||h.startsWith("http://")||h.startsWith("https://")||' +
+      'h.startsWith("//")||h.startsWith("#")||h.startsWith("data:")||' +
+      'h.startsWith("javascript:")||h.startsWith("mailto:"))return;' +
+      'e.preventDefault();' +
+      'window.parent.postMessage({type:"lockhtml-nav",href:h},"*");' +
+      '});</scr' + 'ipt>';
+    var idx = html.lastIndexOf('</body>');
+    if (idx !== -1) return html.slice(0, idx) + tag + html.slice(idx);
+    return html + tag;
+  }
+
+  function resolvePath(fromPage, href) {
+    if (!href) return fromPage;
+    href = href.replace(/^\\.\\//g, '');
+    // Get directory of the referring page
+    var parts = fromPage.split('/');
+    parts.pop();
+    var segments = href.split('/');
+    for (var i = 0; i < segments.length; i++) {
+      if (segments[i] === '..') parts.pop();
+      else if (segments[i] !== '.' && segments[i] !== '') parts.push(segments[i]);
     }
-    return resolved.join('/');
+    return parts.length ? parts.join('/') : href;
   }
 
   function getMimeForExt(ext) {
-    const mimes = {
+    var mimes = {
       html: 'text/html', htm: 'text/html',
       css: 'text/css', js: 'text/javascript',
       json: 'application/json', xml: 'application/xml',

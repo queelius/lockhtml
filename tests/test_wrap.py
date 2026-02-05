@@ -13,6 +13,7 @@ from lockhtml.crypto import LockhtmlError, decrypt
 from lockhtml.wrap import (
     _get_marked_js,
     _get_renderer_js,
+    _get_site_renderer_js,
     _get_wrap_css,
     detect_mime,
     wrap_file,
@@ -750,3 +751,93 @@ class TestWrapFileViewers:
         html = output.read_text()
 
         assert "marked v" not in html
+
+
+class TestSiteResourceStringRewriting:
+    """Tests for dynamic resource string rewriting in site renderer JS."""
+
+    def test_resource_rewriting_regex_present(self):
+        """The resource string rewriting regex should appear in site renderer JS."""
+        js = _get_site_renderer_js()
+        # The regex for matching quoted file-path-like strings
+        assert "Rewrite quoted strings that match known resource paths" in js
+        assert "htmlFiles.has(resolved)" in js
+
+    def test_json_image_urls_rewritten(self, tmp_path):
+        """A site with JSON image URLs in a script tag should produce
+        wrapped output containing the resource string rewriting pass."""
+        site_dir = tmp_path / "site"
+        site_dir.mkdir()
+        img_dir = site_dir / "img"
+        img_dir.mkdir()
+
+        # Create a PNG file
+        (img_dir / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+
+        # Create an HTML page with JSON data referencing the image
+        (site_dir / "index.html").write_text(
+            "<html><head></head><body>"
+            '<script>var data = {"url": "img/photo.png"};</script>'
+            "</body></html>"
+        )
+
+        output = wrap_site(site_dir, password="pw")
+        content = output.read_text()
+
+        # The wrapped output should contain the site renderer with
+        # the resource string rewriting logic
+        assert "Rewrite quoted strings" in content
+        assert "htmlFiles.has" in content
+
+    def test_resource_rewriting_skips_html_paths(self):
+        """Quoted strings matching HTML files should NOT be rewritten
+        (navigation interceptor handles those)."""
+        js = _get_site_renderer_js()
+        # The guard: only replace if not in htmlFiles
+        assert "!htmlFiles.has(resolved)" in js
+
+    def test_resource_rewriting_skips_absolute_urls(self):
+        """Absolute URLs and data URIs should be skipped."""
+        js = _get_site_renderer_js()
+        assert "val.indexOf('://') !== -1" in js
+        assert "val.startsWith('data:')" in js
+
+    def test_site_with_dynamic_refs_wraps_successfully(self, tmp_path):
+        """A site with dynamic JS image references should wrap without error
+        and include all files in the zip payload."""
+        site_dir = tmp_path / "site"
+        site_dir.mkdir()
+        media_dir = site_dir / "media"
+        media_dir.mkdir()
+
+        # Create multiple image files
+        for name in ["a.png", "b.jpg", "c.gif"]:
+            (media_dir / name).write_bytes(b"\x00" * 20)
+
+        # HTML with JS that dynamically sets image sources
+        (site_dir / "index.html").write_text(
+            "<html><body>"
+            "<script>"
+            'var images = ["media/a.png", "media/b.jpg", "media/c.gif"];'
+            "images.forEach(function(src) {"
+            '  var img = document.createElement("img");'
+            "  img.src = src;"
+            "  document.body.appendChild(img);"
+            "});"
+            "</script>"
+            "</body></html>"
+        )
+
+        output = wrap_site(site_dir, password="pw")
+        assert output.exists()
+
+        # Verify all files are in the encrypted payload
+        soup = BeautifulSoup(output.read_text(), "html.parser")
+        elem = soup.find("lockhtml-encrypt")
+        encrypted = elem["data-encrypted"]
+        _, meta = decrypt(encrypted, "pw")
+
+        assert "index.html" in meta["files"]
+        assert "media/a.png" in meta["files"]
+        assert "media/b.jpg" in meta["files"]
+        assert "media/c.gif" in meta["files"]
