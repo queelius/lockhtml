@@ -688,7 +688,7 @@ def _get_renderer_js() -> str:
     <div class="pagevault-container">
       <div class="pagevault-icon">🔒</div>
       <div class="pagevault-title">Protected Content</div>
-      <div class="pagevault-filename">${filename}</div>
+      <div class="pagevault-filename">${escapeHtml(filename)}</div>
       <form class="pagevault-form">
         ${isUserMode ? '<input type="text" class="pagevault-input" placeholder="Username" autocomplete="username">' : ''}
         <input type="password" class="pagevault-input pagevault-password" placeholder="Password" autocomplete="current-password">
@@ -1026,6 +1026,10 @@ def _get_site_renderer_js() -> str:
 (function() {
   'use strict';
 
+  function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   window.__pagevault_renderSite = async function(container, zipBytes, meta) {
     const entry = meta.entry || 'index.html';
 
@@ -1153,10 +1157,10 @@ def _get_site_renderer_js() -> str:
 
       // Load entry page
       if (!renderPage(entry)) {
-        container.innerHTML = '<div class="pagevault-error">Entry point not found: ' + entry + '</div>';
+        container.innerHTML = '<div class="pagevault-error">Entry point not found: ' + escapeHtml(entry) + '</div>';
       }
     } catch (e) {
-      container.innerHTML = '<div class="pagevault-error">Failed to load site: ' + e.message + '</div>';
+      container.innerHTML = '<div class="pagevault-error">Failed to load site: ' + escapeHtml(e.message) + '</div>';
     }
   };
 

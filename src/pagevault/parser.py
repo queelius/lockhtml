@@ -266,6 +266,12 @@ def lock_html(
 
         # Clear element content and set encrypted attributes
         element.clear()
+
+        # Remove original attributes (only data- prefixed versions survive)
+        for attr_name in ("hint", "title", "remember"):
+            if attr_name in element.attrs:
+                del element[attr_name]
+
         element["data-encrypted"] = encrypted_data
         element["data-content-hash"] = hash_value
 
@@ -642,6 +648,10 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
 (function() {{
   'use strict';
 
+  function escapeHtml(str) {{
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }}
+
   const STORAGE_KEY = 'pagevault_passwords';
   const CONFIG = {{
     title: {_js_string(template.title)},
@@ -859,18 +869,18 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
       this.innerHTML = `
         <div class="pagevault-container">
           <div class="pagevault-icon">🔒</div>
-          <div class="pagevault-title">${{title}}</div>
-          ${{hint ? `<div class="pagevault-hint">${{hint}}</div>` : ''}}
+          <div class="pagevault-title">${{escapeHtml(title)}}</div>
+          ${{hint ? `<div class="pagevault-hint">${{escapeHtml(hint)}}</div>` : ''}}
           <form class="pagevault-form">
-            ${{isUserMode ? `<input type="text" class="pagevault-input pagevault-username" placeholder="${{CONFIG.usernamePlaceholder}}" autocomplete="username">` : ''}}
-            <input type="password" class="pagevault-input" placeholder="${{CONFIG.placeholder}}" autocomplete="current-password">
+            ${{isUserMode ? `<input type="text" class="pagevault-input pagevault-username" placeholder="${{escapeHtml(CONFIG.usernamePlaceholder)}}" autocomplete="username">` : ''}}
+            <input type="password" class="pagevault-input" placeholder="${{escapeHtml(CONFIG.placeholder)}}" autocomplete="current-password">
             ${{remember === 'ask' ? `
               <label class="pagevault-remember">
                 <input type="checkbox" name="remember">
                 Remember on this device
               </label>
             ` : ''}}
-            <button type="submit" class="pagevault-button">${{CONFIG.buttonText}}</button>
+            <button type="submit" class="pagevault-button">${{escapeHtml(CONFIG.buttonText)}}</button>
             <div class="pagevault-error" style="display: none;"></div>
           </form>
         </div>
@@ -1003,6 +1013,7 @@ def _js_string(s: str) -> str:
         .replace('"', '\\"')
         .replace("\n", "\\n")
         .replace("\r", "\\r")
+        .replace("</", "<\\/")
         + '"'
     )
 

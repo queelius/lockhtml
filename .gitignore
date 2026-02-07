@@ -38,7 +38,8 @@ htmlcov/
 .tox/
 .nox/
 
-# lockhtml specific
+# pagevault specific
+.pagevault.yaml
 .lockhtml.yaml
 encrypted/
 decrypted/

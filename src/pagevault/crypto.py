@@ -196,7 +196,7 @@ def decrypt(
         Tuple of (plaintext, metadata). metadata is None if not set.
 
     Raises:
-        LockhtmlError: If decryption fails.
+        PagevaultError: If decryption fails.
     """
     # Decode base64
     try:
@@ -418,7 +418,7 @@ def hex_to_salt(hex_str: str) -> bytes:
     """Convert hex string back to salt bytes.
 
     Raises:
-        LockhtmlError: If hex string is invalid or wrong length.
+        PagevaultError: If hex string is invalid or wrong length.
     """
     try:
         salt = bytes.fromhex(hex_str)

@@ -838,3 +838,32 @@ class TestSiteResourceStringRewriting:
         assert "media/a.png" in meta["files"]
         assert "media/b.jpg" in meta["files"]
         assert "media/c.gif" in meta["files"]
+
+
+class TestRendererXssPrevention:
+    """Tests for XSS prevention in renderer JS functions."""
+
+    def test_file_renderer_escapes_filename(self):
+        """Test _get_renderer_js() uses escapeHtml for filename display."""
+        js = _get_renderer_js()
+        assert "escapeHtml(filename)" in js
+
+    def test_file_renderer_has_escapehtml(self):
+        """Test _get_renderer_js() defines escapeHtml."""
+        js = _get_renderer_js()
+        assert "function escapeHtml" in js
+
+    def test_site_renderer_escapes_entry(self):
+        """Test _get_site_renderer_js() uses escapeHtml for entry point error."""
+        js = _get_site_renderer_js()
+        assert "escapeHtml(entry)" in js
+
+    def test_site_renderer_escapes_error_message(self):
+        """Test _get_site_renderer_js() uses escapeHtml for error message."""
+        js = _get_site_renderer_js()
+        assert "escapeHtml(e.message)" in js
+
+    def test_site_renderer_has_escapehtml(self):
+        """Test _get_site_renderer_js() defines its own escapeHtml."""
+        js = _get_site_renderer_js()
+        assert "function escapeHtml" in js

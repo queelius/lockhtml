@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from pagevault.config import DefaultsConfig, PagevaultConfig, TemplateConfig
 from pagevault.crypto import PagevaultError, content_hash, decrypt, generate_salt
 from pagevault.parser import (
+    _js_string,
     extract_element_content,
     find_pagevault_elements,
     has_pagevault_elements,
@@ -91,10 +92,7 @@ class TestMarkElements:
 
     def test_wraps_pagevault_elements(self):
         """Test can wrap existing pagevault elements for composability."""
-        html = (
-            "<html><body><pagevault>"
-            "Already wrapped</pagevault></body></html>"
-        )
+        html = "<html><body><pagevault>Already wrapped</pagevault></body></html>"
 
         result = mark_elements(html, ["pagevault"])
 
@@ -323,9 +321,7 @@ class TestLockHtml:
 
     def test_reencrypts_already_encrypted(self):
         """Test encrypting already-encrypted elements (composability)."""
-        html = (
-            '<pagevault data-encrypted="x">Already encrypted</pagevault>'
-        )
+        html = '<pagevault data-encrypted="x">Already encrypted</pagevault>'
 
         result = lock_html(html, "password")
 
@@ -1160,3 +1156,148 @@ class TestBackwardCompat:
         result = wrap_body_for_encryption(html)
 
         assert "<pagevault>" in result
+
+
+class TestEscapeHtmlInRuntime:
+    """Tests for escapeHtml function in generated JS runtime."""
+
+    def test_locked_output_contains_escapehtml(self):
+        """Test that locked HTML output contains the escapeHtml function."""
+        html = "<pagevault>Secret</pagevault>"
+
+        result = lock_html(html, "password")
+
+        assert "function escapeHtml" in result
+
+    def test_locked_output_uses_escapehtml_for_title(self):
+        """Test that the _render() method uses escapeHtml for title."""
+        html = "<pagevault>Secret</pagevault>"
+
+        result = lock_html(html, "password")
+
+        assert "escapeHtml(title)" in result
+
+    def test_locked_output_uses_escapehtml_for_hint(self):
+        """Test that the _render() method uses escapeHtml for hint."""
+        html = "<pagevault>Secret</pagevault>"
+
+        result = lock_html(html, "password")
+
+        assert "escapeHtml(hint)" in result
+
+    def test_locked_output_uses_escapehtml_for_button(self):
+        """Test that the _render() method uses escapeHtml for button text."""
+        html = "<pagevault>Secret</pagevault>"
+
+        result = lock_html(html, "password")
+
+        assert "escapeHtml(CONFIG.buttonText)" in result
+
+
+class TestJsStringEscape:
+    """Tests for _js_string script-tag escape."""
+
+    def test_escapes_script_close_tag(self):
+        """Test that </script> sequences are escaped in JS strings."""
+        result = _js_string("</script>alert(1)")
+
+        assert "<\\/script>" in result
+        assert "</script>" not in result
+
+    def test_escapes_generic_close_tag(self):
+        """Test that any </ sequence is escaped."""
+        result = _js_string("foo</bar>baz")
+
+        assert "<\\/bar>" in result
+
+    def test_preserves_normal_strings(self):
+        """Test that normal strings are unchanged (except quotes)."""
+        result = _js_string("hello world")
+
+        assert result == '"hello world"'
+
+    def test_escapes_backslashes(self):
+        """Test backslashes are properly escaped."""
+        result = _js_string("back\\slash")
+
+        assert result == '"back\\\\slash"'
+
+    def test_escapes_quotes(self):
+        """Test double quotes are properly escaped."""
+        result = _js_string('say "hello"')
+
+        assert result == '"say \\"hello\\""'
+
+
+class TestAttributeRemovalDuringLock:
+    """Tests for removing original hint/title/remember attrs during lock."""
+
+    def test_hint_attr_removed_after_lock(self):
+        """Test that bare 'hint' attribute is removed after lock."""
+        html = '<pagevault hint="Password hint">Secret</pagevault>'
+
+        result = lock_html(html, "password")
+
+        soup = BeautifulSoup(result, "html.parser")
+        elem = soup.find("pagevault")
+        # data-hint should be present
+        assert elem.get("data-hint") == "Password hint"
+        # bare hint should NOT be present
+        assert "hint" not in elem.attrs or elem.attrs.get("hint") is None
+        # Check no bare hint= in the raw HTML (only data-hint=)
+        assert 'hint="Password hint"' not in result.replace("data-hint", "REPLACED")
+
+    def test_title_attr_removed_after_lock(self):
+        """Test that bare 'title' attribute is removed after lock."""
+        html = '<pagevault title="Admin Panel">Secret</pagevault>'
+
+        result = lock_html(html, "password")
+
+        soup = BeautifulSoup(result, "html.parser")
+        elem = soup.find("pagevault")
+        assert elem.get("data-title") == "Admin Panel"
+        assert "title" not in elem.attrs
+
+    def test_remember_attr_removed_after_lock(self):
+        """Test that bare 'remember' attribute is removed after lock."""
+        html = '<pagevault remember="local">Secret</pagevault>'
+
+        result = lock_html(html, "password")
+
+        soup = BeautifulSoup(result, "html.parser")
+        elem = soup.find("pagevault")
+        assert elem.get("data-remember") == "local"
+        assert "remember" not in elem.attrs
+
+    def test_roundtrip_preserves_attribute_values(self):
+        """Test lock->unlock roundtrip still preserves hint/title/remember values."""
+        html = (
+            '<pagevault hint="My hint" title="My title"'
+            ' remember="session">Secret</pagevault>'
+        )
+
+        encrypted = lock_html(html, "password")
+        decrypted = unlock_html(encrypted, "password")
+
+        # After unlock, the bare attributes should be restored
+        assert 'hint="My hint"' in decrypted
+        assert 'title="My title"' in decrypted
+        assert 'remember="session"' in decrypted
+        assert "Secret" in decrypted
+
+    def test_all_attrs_removed_together(self):
+        """Test all three attributes are removed simultaneously during lock."""
+        html = '<pagevault hint="H" title="T" remember="local">Content</pagevault>'
+
+        result = lock_html(html, "password")
+
+        soup = BeautifulSoup(result, "html.parser")
+        elem = soup.find("pagevault")
+        # Only data- prefixed versions should exist
+        assert elem.get("data-hint") == "H"
+        assert elem.get("data-title") == "T"
+        assert elem.get("data-remember") == "local"
+        # Bare versions should be gone
+        assert "hint" not in elem.attrs
+        assert "title" not in elem.attrs
+        assert "remember" not in elem.attrs
