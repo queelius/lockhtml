@@ -206,6 +206,29 @@ pagevault source code is open. You can:
    - Check `templates/pagevault.js` for browser-side implementation
    - Uses `SubtleCrypto.decrypt()` with AES-256-GCM
 
+## Viewer Plugin Security
+
+pagevault includes a viewer plugin system for rendering wrapped files (images, PDFs, HTML, text, Markdown) in the browser after decryption. The security model for plugins follows standard Python packaging conventions:
+
+**Trust model: `pip install` = trust.** If you install a third-party package that registers viewer plugins via the `pagevault.viewers` entry point group, that plugin's JavaScript and CSS will be embedded into your encrypted HTML output. This is the same trust model as any Python package -- installing a package grants it the ability to run code in your environment.
+
+**Defense-in-depth measures:**
+- Plugin names and MIME types are validated via regex at class definition time (`__init_subclass__`) and again at the injection point
+- Plugin JavaScript, CSS, and dependency strings are escaped to prevent `</script>` and `</style>` breakout attacks
+- The built-in HTML viewer uses an iframe with `sandbox="allow-same-origin"` (no `allow-scripts`) for display-only rendering
+- Plugin names are deduplicated by priority, with warnings logged on collision
+
+**Recommendation:** Only install viewer plugins from packages you trust. Review third-party plugin source code before installing. The built-in viewers (image, PDF, HTML, text, Markdown) are maintained as part of the pagevault project and undergo the same review process as the core code.
+
+## Content Padding
+
+The `--pad` flag (or `pad: true` in config) pads content to the next power-of-2 boundary before encryption. This prevents attackers from inferring content size from ciphertext length, which can be a concern when:
+
+- Encrypted files are publicly hosted and different content lengths could reveal which document is which
+- An attacker can observe ciphertext sizes over time and correlate them with known documents
+
+Padding adds space overhead but provides stronger confidentiality guarantees. Consider enabling it for high-sensitivity deployments.
+
 ## Known Limitations
 
 1. **Side-channel attacks**: Password might be leaked via timing analysis, power consumption, etc. (not practical for browsers)

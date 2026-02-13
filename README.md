@@ -40,7 +40,7 @@ Visitors see your site normally. When they encounter protected content, a passwo
 | **No server** | ✅ | ✅ | ✅ | ✅ |
 | **Preserves structure** | ✅ | ❌ | ✅ | ✅ |
 | **Real encryption** | ✅ | ✅ | ❌ | ❌ |
-| **Shareable links** | ✅ | ✅ | ❌ | ❌ |
+| **Viewer plugins** | ✅ | ❌ | ❌ | ❌ |
 
 ## Quick Start
 
@@ -116,7 +116,6 @@ pagevault lock status-page.html -p "$CLIENT_PASSWORD"
 ### For Users
 - **Auto-prompt**: Password prompt appears automatically (optional)
 - **Remember-me**: Store password in browser (session or persistent)
-- **Shareable links**: `#pagevault_pwd=PASSWORD` in URL fragment
 - **Clean logout**: `#pagevault_logout` clears stored passwords
 - **Event hooks**: JavaScript can react to decryption
 
@@ -125,6 +124,7 @@ pagevault lock status-page.html -p "$CLIENT_PASSWORD"
 - **HTML structure preserved**: Navigation, scripts, styles stay public
 - **Custom CSS**: Use your own styles for the password prompt
 - **Multi-user encryption**: Encrypt for different users with different passwords
+- **Viewer plugins**: Built-in viewers for images, PDFs, HTML, text, and Markdown
 - **Configuration cascade**: Command-line > env vars > .pagevault.yaml > defaults
 - **Web Crypto API**: Same encryption as modern browsers use
 
@@ -140,7 +140,7 @@ pagevault lock status-page.html -p "$CLIENT_PASSWORD"
 ```bash
 pip install pagevault
 # or
-pip install git+https://github.com/yourusername/pagevault.git
+pip install git+https://github.com/queelius/pagevault.git
 ```
 
 Requires Python 3.10+.
@@ -154,10 +154,17 @@ pagevault lock report.pdf                 # PDF: wrap entire file
 pagevault lock site/                      # All files in directory
 pagevault lock site/ --site               # Bundle as encrypted site
 pagevault lock page.html -s "#secret"     # Encrypt only #secret element
+pagevault lock page.html --pad            # Pad content to prevent size leakage
 
 # Unlock (decrypt, returns to marked state)
 pagevault unlock _locked/page.html
 pagevault unlock _locked/ -r
+pagevault unlock report.pdf.html --stdout -p "$SECRET" > report.pdf
+
+# Inspect & verify
+pagevault info encrypted.html             # Show metadata without password
+pagevault check encrypted.html -p "pw"    # Verify password (exit 0=correct)
+pagevault audit                           # Health check config & passwords
 
 # Mark (add encryption tags)
 pagevault mark page.html                  # Wrap entire body

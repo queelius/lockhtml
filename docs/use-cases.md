@@ -199,6 +199,64 @@ pagevault lock gallery/ --site -p "password"
 
 All files become self-contained, shareable encrypted HTML. No server required.
 
+## CI/CD Pipeline Integration
+
+Use `--stdout` to decrypt wrapped files directly into a pipeline without intermediate files. This is useful for CI/CD systems that need to consume encrypted artifacts.
+
+**Decrypt and process in one step:**
+
+```bash
+# Decrypt a wrapped PDF report and save to disk
+pagevault unlock report.pdf.html --stdout -p "$SECRET" > report.pdf
+
+# Pipe decrypted content to another tool
+pagevault unlock data.csv.html --stdout -p "$SECRET" | csvtool col 1,3 -
+
+# Use in GitHub Actions
+- name: Decrypt report
+  run: pagevault unlock report.pdf.html --stdout -p "${{ secrets.PAGEVAULT_PASSWORD }}" > report.pdf
+```
+
+**Verify before deploying:**
+
+```bash
+# Check password before attempting full decrypt
+if pagevault check _locked/index.html -p "$DEPLOY_PASSWORD"; then
+  pagevault unlock _locked/ -r -p "$DEPLOY_PASSWORD"
+else
+  echo "Wrong password, aborting deploy"
+  exit 1
+fi
+```
+
+## Audit Workflow
+
+Run regular audits to catch configuration issues before they become problems.
+
+**Pre-deploy audit:**
+
+```bash
+#!/bin/bash
+set -e
+
+# Audit config before encrypting
+pagevault audit -c .pagevault.yaml
+
+# If audit passes, proceed with encryption
+pagevault lock site/ -r
+rsync -av _locked/ deploy/
+```
+
+**Scheduled audit in CI:**
+
+```yaml
+# GitHub Actions example
+- name: Audit pagevault config
+  run: pagevault audit -c .pagevault.yaml
+```
+
+The audit checks password strength, salt quality, `.gitignore` hygiene, and integrity of managed encrypted files. Exit code 1 indicates issues that should be addressed.
+
 ---
 
 ## General Tips

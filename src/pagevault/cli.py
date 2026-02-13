@@ -168,9 +168,7 @@ def _determine_operation_mode(
         for path_str in paths:
             path = Path(path_str)
             if not path.is_dir():
-                raise click.UsageError(
-                    "--site requires directory path(s), not files"
-                )
+                raise click.UsageError("--site requires directory path(s), not files")
         return ("wrap_site", [Path(p) for p in paths])
 
     # Check file types
@@ -221,7 +219,8 @@ def _validate_flags_for_mode(
     if mode == "wrap_site":
         if selectors or css_path or hint or remember or title:
             raise click.UsageError(
-                "--site incompatible with --selector/--css/--hint/--remember/--title flags"
+                "--site incompatible with "
+                "--selector/--css/--hint/--remember/--title flags"
             )
         if recursive:
             raise click.UsageError("--site already includes all files, -r not needed")
@@ -285,6 +284,7 @@ def _lock_html_files(
     selector_remember: str | None,
     selector_title: str | None,
     source_paths: tuple,
+    pad: bool = False,
 ) -> tuple[int, int]:
     """Lock HTML files. Returns (processed, skipped)."""
 
@@ -358,6 +358,7 @@ def _lock_html_files(
                     mode="lock",
                     custom_css=custom_css,
                     users=users,
+                    pad=pad,
                 )
             else:
                 changed = process_file(
@@ -368,6 +369,7 @@ def _lock_html_files(
                     mode="lock",
                     custom_css=custom_css,
                     users=users,
+                    pad=pad,
                 )
             if changed:
                 click.echo(f"Locked: {rel_input} -> {rel_output}")
@@ -387,6 +389,7 @@ def _wrap_single_file(
     password: str | None,
     output_path: Path | None,
     dry_run: bool,
+    pad: bool = False,
 ) -> Path:
     """Wrap a single non-HTML file into encrypted HTML.
 
@@ -402,7 +405,9 @@ def _wrap_single_file(
         result_path = path.with_suffix(".html")
 
     if dry_run:
-        click.echo(f"Would wrap: {_relative_path(path)} -> {_relative_path(result_path)}")
+        rel_in = _relative_path(path)
+        rel_out = _relative_path(result_path)
+        click.echo(f"Would wrap: {rel_in} -> {rel_out}")
         return result_path
 
     try:
@@ -412,6 +417,7 @@ def _wrap_single_file(
             config=config,
             output_path=result_path,
             users=users,
+            pad=pad,
         )
         click.echo(f"Wrapped: {_relative_path(path)} -> {_relative_path(result)}")
         return result
@@ -427,6 +433,7 @@ def _wrap_site_directory(
     output_path: Path | None,
     entry: str,
     dry_run: bool,
+    pad: bool = False,
 ) -> Path:
     """Wrap a directory into encrypted site HTML.
 
@@ -443,7 +450,9 @@ def _wrap_site_directory(
         result_path = path.parent / f"{path.name}.html"
 
     if dry_run:
-        click.echo(f"Would wrap site: {_relative_path(path)} -> {_relative_path(result_path)}")
+        rel_in = _relative_path(path)
+        rel_out = _relative_path(result_path)
+        click.echo(f"Would wrap site: {rel_in} -> {rel_out}")
         return result_path
 
     try:
@@ -454,6 +463,7 @@ def _wrap_site_directory(
             output_path=result_path,
             users=users,
             entry=entry,
+            pad=pad,
         )
         click.echo(f"Wrapped site: {_relative_path(path)} -> {_relative_path(result)}")
         return result
@@ -531,6 +541,11 @@ def _wrap_site_directory(
     default="index.html",
     help="Entry point HTML file for --site mode (default: index.html)",
 )
+@click.option(
+    "--pad",
+    is_flag=True,
+    help="Pad content to power-of-2 boundary before encryption (prevents size leakage)",
+)
 def lock(
     paths,
     recursive,
@@ -547,6 +562,7 @@ def lock(
     output_path,
     site,
     entry,
+    pad,
 ):
     """Encrypt files into password-protected HTML.
 
@@ -635,6 +651,7 @@ def lock(
             selector_remember,
             selector_title,
             paths,
+            pad=pad or config.pad,
         )
 
         click.echo(f"\n{processed} file(s) locked, {skipped} skipped")
@@ -649,6 +666,7 @@ def lock(
                 pwd,
                 Path(output_path) if output_path else None,
                 dry_run,
+                pad=pad or config.pad,
             )
 
     elif mode == "wrap_site":
@@ -662,6 +680,7 @@ def lock(
                 Path(output_path) if output_path else None,
                 entry,
                 dry_run,
+                pad=pad or config.pad,
             )
 
 
@@ -685,7 +704,22 @@ def lock(
     help="Config file path",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be done without changes")
-def unlock(paths, recursive, output_dir, password, config_path, dry_run, username):
+@click.option(
+    "--stdout",
+    "to_stdout",
+    is_flag=True,
+    help="Output decrypted content to stdout (for piping)",
+)
+def unlock(
+    paths,
+    recursive,
+    output_dir,
+    password,
+    config_path,
+    dry_run,
+    username,
+    to_stdout,
+):
     """Unlock (decrypt) HTML files with encrypted <pagevault> regions.
 
     Returns files to "marked" state (plaintext inside <pagevault> wrappers).
@@ -696,9 +730,19 @@ def unlock(paths, recursive, output_dir, password, config_path, dry_run, usernam
       pagevault unlock _locked/ -r
       pagevault unlock _locked/ -r -d _unlocked/
       pagevault unlock _locked/file.html -u alice -p "alice-pw"
+      pagevault unlock report.pdf.html --stdout -p "$SECRET" > report.pdf
     """
     if not paths:
         raise click.UsageError("No files or directories specified")
+
+    if to_stdout and output_dir:
+        raise click.UsageError("--stdout and -d/--directory are mutually exclusive")
+
+    if to_stdout and dry_run:
+        raise click.UsageError("--stdout and --dry-run are mutually exclusive")
+
+    if to_stdout and recursive:
+        raise click.UsageError("--stdout requires a single file, not -r")
 
     # Load configuration
     try:
@@ -723,6 +767,30 @@ def unlock(paths, recursive, output_dir, password, config_path, dry_run, usernam
         pwd = config.password
     else:
         pwd = click.prompt("Enter decryption password", hide_input=True)
+
+    # --stdout mode: decrypt and write to stdout
+    if to_stdout:
+        from .parser import unlock_html
+
+        if len(paths) != 1 or not Path(paths[0]).is_file():
+            raise click.UsageError("--stdout requires exactly one file")
+
+        input_path = Path(paths[0])
+        try:
+            content = input_path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise click.ClickException(f"Cannot read {input_path}: {e}")
+
+        if not has_pagevault_elements(content):
+            raise click.ClickException("File has no encrypted pagevault elements")
+
+        try:
+            decrypted = unlock_html(content, pwd, username=user)
+        except PagevaultError as e:
+            raise click.ClickException(str(e))
+
+        click.echo(decrypted, nl=False)
+        return
 
     # Set default output directory
     if output_dir is None:
@@ -886,6 +954,383 @@ def sync(paths, recursive, config_path, dry_run, rekey):
             click.echo(f"Error syncing {rel_path}: {e}", err=True)
 
     click.echo(f"\n{processed} file(s) synced, {skipped} skipped")
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True))
+def info(path):
+    """Inspect an encrypted HTML file.
+
+    Shows encryption metadata, viewer info, and runtime details
+    without requiring a password.
+
+    \b
+    Examples:
+      pagevault info encrypted.html
+      pagevault info _locked/index.html
+    """
+    import re
+
+    from .crypto import inspect_payload
+
+    file_path = Path(path)
+    if not file_path.is_file():
+        raise click.ClickException(f"Not a file: {file_path}")
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise click.ClickException(f"Cannot read {file_path}: {e}")
+
+    if not has_pagevault_elements(content):
+        raise click.ClickException("File has no pagevault elements")
+
+    # Parse HTML to extract encrypted regions
+    from bs4 import BeautifulSoup
+
+    try:
+        soup = BeautifulSoup(content, "lxml")
+    except Exception:
+        soup = BeautifulSoup(content, "html.parser")
+
+    elements = soup.find_all("pagevault")
+    encrypted_regions = [el for el in elements if el.has_attr("data-encrypted")]
+
+    if not encrypted_regions:
+        raise click.ClickException("File has no encrypted regions")
+
+    click.echo(f"File: {_relative_path(file_path)}")
+    click.echo(f"Encrypted regions: {len(encrypted_regions)}")
+    click.echo()
+
+    for i, el in enumerate(encrypted_regions):
+        payload = el.get("data-encrypted", "")
+        content_hash_val = el.get("data-content-hash", "")
+        mode = el.get("data-mode", "single")
+        hint = el.get("data-hint", "")
+        title = el.get("data-title", "")
+        remember = el.get("data-remember", "")
+
+        click.echo(f"--- Region {i + 1} ---")
+
+        try:
+            info_data = inspect_payload(payload)
+            click.echo(f"  Version:      v{info_data['version']}")
+            click.echo(f"  Algorithm:    {info_data['algorithm']}")
+            click.echo(f"  KDF:          {info_data['kdf']}")
+            click.echo(f"  Iterations:   {info_data['iterations']:,}")
+            click.echo(f"  Key blobs:    {info_data['key_count']}")
+            if "salt_length" in info_data:
+                click.echo(f"  Salt:         {info_data['salt_length']} bytes")
+            if "iv_length" in info_data:
+                click.echo(f"  IV:           {info_data['iv_length']} bytes")
+            if "ciphertext_length" in info_data:
+                ct_len = info_data["ciphertext_length"]
+                if ct_len < 1024:
+                    click.echo(f"  Ciphertext:   {ct_len} B")
+                elif ct_len < 1048576:
+                    click.echo(f"  Ciphertext:   {ct_len / 1024:.1f} KB")
+                else:
+                    click.echo(f"  Ciphertext:   {ct_len / 1048576:.1f} MB")
+        except PagevaultError as e:
+            click.echo(f"  Error parsing payload: {e}")
+
+        click.echo(f"  Mode:         {mode}")
+        if content_hash_val:
+            click.echo(f"  Content hash: {content_hash_val}")
+        if hint:
+            click.echo(f"  Hint:         {hint}")
+        if title:
+            click.echo(f"  Title:        {title}")
+        if remember:
+            click.echo(f"  Remember:     {remember}")
+        click.echo()
+
+    # Viewer info: check for embedded viewer scripts
+    runtime_scripts = soup.find_all("script", {"data-pagevault-runtime": True})
+    runtime_styles = soup.find_all("style", {"data-pagevault-runtime": True})
+    click.echo(f"Runtime scripts: {len(runtime_scripts)}")
+    click.echo(f"Runtime styles:  {len(runtime_styles)}")
+
+    # Check for viewer dispatch table
+    for script in runtime_scripts:
+        script_text = script.string or ""
+        viewer_matches = re.findall(r"'([a-z]+/[a-z0-9*+\-.]+)':\s*__pv_", script_text)
+        if viewer_matches:
+            click.echo(f"Viewers:         {', '.join(viewer_matches)}")
+
+    # Check for wrap type
+    wrap_el = soup.find("pagevault", {"data-wrap-type": True})
+    if wrap_el:
+        click.echo(f"Wrap type:       {wrap_el.get('data-wrap-type')}")
+        if wrap_el.get("data-filename"):
+            click.echo(f"Filename:        {wrap_el.get('data-filename')}")
+        if wrap_el.get("data-entry"):
+            click.echo(f"Entry point:     {wrap_el.get('data-entry')}")
+
+    # Check for JSZip (site mode indicator)
+    jszip_present = any("ZipReader" in (s.string or "") for s in runtime_scripts)
+    if jszip_present:
+        click.echo("JSZip shim:      yes")
+
+    click.echo(f"pagevault:       v{__version__}")
+
+
+@main.command()
+@click.option(
+    "-c",
+    "--config",
+    "config_path",
+    type=click.Path(exists=True),
+    help="Config file path",
+)
+def audit(config_path):
+    """Run comprehensive health checks on configuration and encrypted files.
+
+    Checks password strength, salt quality, config hygiene, and file integrity.
+
+    \b
+    Examples:
+      pagevault audit
+      pagevault audit -c .pagevault.yaml
+    """
+    import math
+    import os
+
+    # Load configuration
+    try:
+        cfg = load_config(config_path=Path(config_path) if config_path else None)
+    except PagevaultError as e:
+        raise click.ClickException(str(e))
+
+    issues = []
+    warnings = []
+    passed = []
+
+    # --- Password strength ---
+    passwords_to_check = []
+    if cfg.password:
+        passwords_to_check.append(("password", cfg.password))
+    if cfg.users:
+        for uname, upwd in cfg.users.items():
+            passwords_to_check.append((f"user '{uname}'", upwd))
+
+    for label, pwd in passwords_to_check:
+        length = len(pwd)
+        if length < 8:
+            issues.append(f"WEAK: {label} password is only {length} chars (minimum 8)")
+        elif length < 12:
+            warnings.append(f"{label} password is {length} chars (12+ recommended)")
+        else:
+            passed.append(f"{label} password length OK ({length} chars)")
+
+        # Character class analysis
+        has_lower = any(c.islower() for c in pwd)
+        has_upper = any(c.isupper() for c in pwd)
+        has_digit = any(c.isdigit() for c in pwd)
+        has_special = any(not c.isalnum() for c in pwd)
+        classes = sum([has_lower, has_upper, has_digit, has_special])
+
+        if classes == 1:
+            if has_lower:
+                issues.append(f"WEAK: {label} password is all lowercase")
+            elif has_digit:
+                issues.append(f"WEAK: {label} password is all numeric")
+        elif classes == 2:
+            warnings.append(f"{label} password uses only {classes} character classes")
+
+        # Entropy estimate (bits per char * length)
+        charset_size = 0
+        if has_lower:
+            charset_size += 26
+        if has_upper:
+            charset_size += 26
+        if has_digit:
+            charset_size += 10
+        if has_special:
+            charset_size += 32
+        if charset_size > 0:
+            entropy = length * math.log2(charset_size)
+            if entropy < 40:
+                issues.append(
+                    f"WEAK: {label} password entropy ~{entropy:.0f} bits (<40)"
+                )
+            elif entropy < 60:
+                warnings.append(
+                    f"{label} password entropy ~{entropy:.0f} bits (60+ recommended)"
+                )
+            else:
+                passed.append(f"{label} password entropy ~{entropy:.0f} bits")
+
+    if not passwords_to_check:
+        warnings.append("No passwords configured")
+
+    # --- Salt quality ---
+    if cfg.salt:
+        if len(cfg.salt) < 16:
+            issues.append(f"Salt is only {len(cfg.salt)} bytes (minimum 16)")
+        elif cfg.salt == b"\x00" * len(cfg.salt):
+            issues.append("Salt is all zeros")
+        else:
+            passed.append(f"Salt OK ({len(cfg.salt)} bytes)")
+    else:
+        warnings.append("No salt configured (random salt will be used per encryption)")
+
+    # --- Config hygiene ---
+    if cfg.config_path:
+        config_dir = cfg.config_path.parent
+        gitignore = config_dir / ".gitignore"
+        if gitignore.is_file():
+            gitignore_content = gitignore.read_text(encoding="utf-8", errors="replace")
+            config_name = cfg.config_path.name
+            yaml_in_gitignore = ".pagevault.yaml" in gitignore_content
+            if config_name in gitignore_content or yaml_in_gitignore:
+                passed.append(f"{config_name} is in .gitignore")
+            else:
+                issues.append(
+                    f"{config_name} is NOT in .gitignore — passwords may be committed"
+                )
+        else:
+            warnings.append("No .gitignore found in config directory")
+
+    # Check environment variable
+    if os.environ.get("PAGEVAULT_PASSWORD"):
+        warnings.append(
+            "PAGEVAULT_PASSWORD is set in environment — "
+            "visible to other processes and shell history"
+        )
+
+    # --- File integrity (check managed files if available) ---
+    managed_files = []
+    if cfg.managed and cfg.config_path:
+        config_dir = cfg.config_path.parent
+        for pattern in cfg.managed:
+            matched = sorted(config_dir.glob(pattern))
+            managed_files.extend(
+                f
+                for f in matched
+                if f.is_file() and f.suffix.lower() in {".html", ".htm"}
+            )
+        managed_files = sorted(set(managed_files))
+
+    if managed_files:
+        from bs4 import BeautifulSoup
+
+        checked = 0
+        for file_path in managed_files:
+            try:
+                html = file_path.read_text(encoding="utf-8")
+            except OSError:
+                warnings.append(f"Cannot read managed file: {file_path.name}")
+                continue
+
+            if not has_pagevault_elements(html):
+                continue
+
+            try:
+                soup = BeautifulSoup(html, "lxml")
+            except Exception:
+                soup = BeautifulSoup(html, "html.parser")
+
+            for el in soup.find_all("pagevault", {"data-encrypted": True}):
+                if el.get("data-content-hash"):
+                    checked += 1
+
+        if checked > 0:
+            passed.append(f"Found {checked} encrypted region(s) with content hashes")
+    else:
+        warnings.append("No managed files configured for integrity checks")
+
+    # --- Output results ---
+    click.echo("pagevault audit")
+    click.echo("=" * 40)
+
+    if issues:
+        click.echo(f"\nISSUES ({len(issues)}):")
+        for issue in issues:
+            click.echo(f"  [!] {issue}")
+
+    if warnings:
+        click.echo(f"\nWARNINGS ({len(warnings)}):")
+        for warning in warnings:
+            click.echo(f"  [?] {warning}")
+
+    if passed:
+        click.echo(f"\nPASSED ({len(passed)}):")
+        for p in passed:
+            click.echo(f"  [+] {p}")
+
+    click.echo()
+    if issues:
+        click.echo(f"Result: {len(issues)} issue(s) found")
+        raise SystemExit(1)
+    elif warnings:
+        click.echo(f"Result: OK with {len(warnings)} warning(s)")
+    else:
+        click.echo("Result: All checks passed")
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True))
+@click.option("-p", "--password", required=True, help="Password to verify")
+@click.option("-u", "--username", help="Username for multi-user content")
+def check(path, password, username):
+    """Verify a password against an encrypted file.
+
+    Performs fast key verification (one PBKDF2 + one AES-GCM unwrap).
+    Does NOT decrypt content.
+
+    Exit code 0 = password correct, 1 = incorrect.
+
+    \b
+    Examples:
+      pagevault check encrypted.html -p "test-password"
+      pagevault check _locked/file.html -p "pw" -u alice
+    """
+    from .crypto import verify_password
+
+    file_path = Path(path)
+    if not file_path.is_file():
+        raise click.ClickException(f"Not a file: {file_path}")
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise click.ClickException(f"Cannot read {file_path}: {e}")
+
+    if not has_pagevault_elements(content):
+        raise click.ClickException("File has no pagevault elements")
+
+    # Parse to find first encrypted region
+    from bs4 import BeautifulSoup
+
+    try:
+        soup = BeautifulSoup(content, "lxml")
+    except Exception:
+        soup = BeautifulSoup(content, "html.parser")
+
+    encrypted_el = soup.find("pagevault", {"data-encrypted": True})
+    if not encrypted_el:
+        # Check for wrap-style payload
+        encrypted_el = soup.find("pagevault", {"data-encrypted": True})
+        if not encrypted_el:
+            raise click.ClickException("No encrypted regions found")
+
+    payload = encrypted_el.get("data-encrypted", "")
+    if not payload:
+        raise click.ClickException("Empty encrypted payload")
+
+    try:
+        result = verify_password(payload, password, username=username)
+    except PagevaultError as e:
+        raise click.ClickException(str(e))
+
+    if result:
+        click.echo("Password correct")
+        raise SystemExit(0)
+    else:
+        click.echo("Password incorrect")
+        raise SystemExit(1)
 
 
 @main.group()

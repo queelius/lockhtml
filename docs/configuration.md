@@ -22,6 +22,9 @@ pagevault config init
 password: "your-strong-passphrase"
 salt: "auto-generated-32-hex-chars"
 
+# Content padding (prevents size leakage)
+pad: false
+
 # Default UI behavior
 defaults:
   remember: "ask"        # "none", "session", "local", "ask"
@@ -42,6 +45,12 @@ users:
 
 # Single default user
 user: "alice"
+
+# Viewer plugin overrides (absent = all enabled)
+viewers:
+  image: true
+  pdf: true
+  markdown: false
 
 # Managed file globs (for sync command)
 managed_globs:
@@ -156,6 +165,31 @@ user: "alice"
 # pagevault unlock _locked/file.html
 # Automatically uses alice's password
 ```
+
+#### `pad`
+
+Pad content to a power-of-2 boundary before encryption. This prevents attackers from inferring content size from ciphertext length.
+
+```yaml
+pad: true
+```
+
+Default is `false`. Can also be enabled per-command with the `--pad` flag on `lock`.
+
+#### `viewers`
+
+Enable or disable specific viewer plugins for wrapped file rendering. If this section is absent, all discovered viewers are enabled.
+
+```yaml
+viewers:
+  image: true      # Enable image viewer (default)
+  pdf: true        # Enable PDF viewer (default)
+  html: true       # Enable HTML viewer (default)
+  text: true       # Enable text viewer (default)
+  markdown: false  # Disable Markdown viewer
+```
+
+Viewer names correspond to the plugin names registered via entry points. Only viewers that are both installed and enabled will be embedded in locked output.
 
 #### `managed_globs`
 

@@ -71,7 +71,7 @@ That's it! Visitors see a password prompt on protected sections.
 | **No server** | ✅ | ✅ | ✅ | ✅ |
 | **Preserves structure** | ✅ | ❌ | ✅ | ✅ |
 | **Real encryption** | ✅ | ✅ | ❌ | ❌ |
-| **Shareable links** | ✅ | ✅ | ❌ | ❌ |
+| **Viewer plugins** | ✅ | ❌ | ❌ | ❌ |
 
 ## Key Features
 
@@ -79,7 +79,7 @@ That's it! Visitors see a password prompt on protected sections.
 - **Selective encryption**: Mark just what needs protecting
 - **HTML structure preserved**: Navigation, scripts, styles stay public
 - **Remember-me**: Visitors can save passwords in browser
-- **Shareable**: Send encrypted files with password via email/chat
+- **Viewer plugins**: Built-in rendering for images, PDFs, HTML, text, and Markdown
 
 ### For Developers
 - **CLI-first**: Simple command-line tools, no GUI needed
@@ -110,7 +110,7 @@ That's it! Visitors see a password prompt on protected sections.
 
 New to pagevault? Start with [Getting Started](getting-started.md) for a step-by-step walkthrough.
 
-Explore the [CLI Reference](cli-reference.md) for all commands.
+Explore the [CLI Reference](cli-reference.md) for all commands, including `info` (inspect encrypted files), `check` (verify passwords), and `audit` (health check your setup).
 
 Check [Configuration](configuration.md) to customize behavior.
 

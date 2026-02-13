@@ -437,6 +437,134 @@ def hex_to_salt(hex_str: str) -> bytes:
 HASH_LENGTH = 16  # 128 bits (32 hex chars) - sufficient for integrity check
 
 
+def pad_content(plaintext: str) -> str:
+    """Pad plaintext to nearest power-of-2 byte boundary.
+
+    Appends null bytes (\\x00) so the total byte length is a power of 2.
+    This prevents approximate content size leakage from ciphertext length.
+
+    Args:
+        plaintext: The plaintext content to pad.
+
+    Returns:
+        Padded plaintext string (original content + null padding).
+    """
+    raw_bytes = plaintext.encode("utf-8")
+    length = len(raw_bytes)
+    if length == 0:
+        return plaintext
+
+    # Find next power of 2 >= length
+    target = 1
+    while target < length:
+        target <<= 1
+
+    if target == length:
+        return plaintext
+
+    # Pad with null bytes
+    padding = b"\x00" * (target - length)
+    return (raw_bytes + padding).decode("utf-8", errors="replace")
+
+
+def inspect_payload(encrypted_payload: str) -> dict[str, Any]:
+    """Inspect an encrypted payload without decrypting.
+
+    Extracts metadata from the outer JSON envelope (no password needed).
+
+    Args:
+        encrypted_payload: Base64-encoded v2 payload string.
+
+    Returns:
+        Dict with: version, algorithm, kdf, iterations, salt_hex, salt_length,
+        iv_length, ciphertext_length, key_count.
+
+    Raises:
+        PagevaultError: If payload cannot be parsed.
+    """
+    try:
+        decoded = base64.b64decode(encrypted_payload)
+    except Exception as e:
+        raise PagevaultError(f"Invalid base64 encoding: {e}") from e
+
+    try:
+        data: dict[str, Any] = json.loads(decoded)
+    except json.JSONDecodeError as e:
+        raise PagevaultError(f"Invalid JSON format: {e}") from e
+
+    result: dict[str, Any] = {
+        "version": data.get("v"),
+        "algorithm": data.get("alg", "unknown"),
+        "kdf": data.get("kdf", "unknown"),
+        "iterations": data.get("iter", 0),
+        "key_count": len(data.get("keys", [])),
+    }
+
+    # Decode sizes without processing
+    if "salt" in data:
+        salt_bytes = base64.b64decode(data["salt"])
+        result["salt_hex"] = salt_bytes.hex()
+        result["salt_length"] = len(salt_bytes)
+    if "iv" in data:
+        result["iv_length"] = len(base64.b64decode(data["iv"]))
+    if "ct" in data:
+        result["ciphertext_length"] = len(base64.b64decode(data["ct"]))
+
+    return result
+
+
+def verify_password(
+    encrypted_payload: str,
+    password: str,
+    username: str | None = None,
+) -> bool:
+    """Verify a password against an encrypted payload without decrypting content.
+
+    Performs one PBKDF2 derivation + attempts to unwrap each key blob.
+    Does NOT decrypt the actual content — only verifies key access.
+
+    Args:
+        encrypted_payload: Base64-encoded v2 payload string.
+        password: The password to verify.
+        username: Optional username for multi-user content.
+
+    Returns:
+        True if the password can unwrap a key blob, False otherwise.
+
+    Raises:
+        PagevaultError: If payload cannot be parsed.
+    """
+    try:
+        decoded = base64.b64decode(encrypted_payload)
+        data: dict[str, Any] = json.loads(decoded)
+    except Exception as e:
+        raise PagevaultError(f"Invalid payload: {e}") from e
+
+    if data.get("v") != VERSION:
+        raise PagevaultError(f"Unsupported format version: {data.get('v')}")
+
+    salt = base64.b64decode(data["salt"])
+    keys_list = data.get("keys", [])
+
+    if not keys_list:
+        return False
+
+    secret = _build_secret(password, username)
+    wrapping_key = _derive_key(secret, salt)
+
+    for key_blob in keys_list:
+        try:
+            blob_iv = base64.b64decode(key_blob["iv"])
+            blob_ct = base64.b64decode(key_blob["ct"])
+        except Exception:
+            continue
+        result = _unwrap_key(blob_iv, blob_ct, wrapping_key)
+        if result is not None:
+            return True
+
+    return False
+
+
 def content_hash(content: str) -> str:
     """Compute truncated SHA-256 hash of content for integrity verification.
 

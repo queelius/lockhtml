@@ -10,8 +10,8 @@ from click.testing import CliRunner
 from pagevault.cli import main
 from pagevault.config import CONFIG_FILENAME
 from pagevault.crypto import PagevaultError, decrypt
+from pagevault.viewers import discover_viewers
 from pagevault.wrap import (
-    _get_marked_js,
     _get_renderer_js,
     _get_site_renderer_js,
     _get_wrap_css,
@@ -542,7 +542,7 @@ salt: "0123456789abcdef0123456789abcdef"
         assert 'data-entry="home.html"' in content
 
     def test_wrap_site_missing_entry_fails(self, runner, tmp_path, sample_config):
-        """Test wrap site fails when entry point doesn't exist (now using lock --site)."""
+        """Test wrap site fails when entry point doesn't exist."""
         site_dir = tmp_path / "site"
         site_dir.mkdir()
         (site_dir / "page.html").write_text("<html>Page</html>")
@@ -563,21 +563,6 @@ salt: "0123456789abcdef0123456789abcdef"
 
         assert result.exit_code != 0
         assert "Entry point" in result.output
-
-
-class TestVendoredMarked:
-    """Tests for the vendored marked.js library."""
-
-    def test_get_marked_js_returns_content(self):
-        """Vendored marked.js loads and returns substantial JS."""
-        js = _get_marked_js()
-        assert len(js) > 10000  # ~41KB expected
-        assert "marked" in js
-
-    def test_marked_js_is_mit_licensed(self):
-        """Vendored file contains MIT license header."""
-        js = _get_marked_js()
-        assert "MIT" in js
 
 
 class TestMarkdownViewer:
@@ -628,16 +613,17 @@ class TestMarkdownToggle:
     """Tests for markdown source/rendered toggle."""
 
     def test_toggle_button_in_renderer(self):
-        """Renderer JS should contain toggle button code."""
-        js = _get_renderer_js()
+        """Renderer JS should contain toggle button code via MarkdownViewer plugin."""
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
         assert "toolbar-toggle" in js
-        assert "renderMarkdownViewer" in js
         assert "Source" in js
         assert "Rendered" in js
 
     def test_simplemarkdown_fallback_preserved(self):
-        """simpleMarkdown fallback should still exist in renderer."""
-        js = _get_renderer_js()
+        """simpleMarkdown fallback should still exist in renderer via MarkdownViewer."""
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
         assert "simpleMarkdown" in js
 
 
@@ -646,7 +632,8 @@ class TestViewerToolbar:
 
     def test_create_toolbar_in_renderer(self):
         """Renderer JS should contain createToolbar function."""
-        js = _get_renderer_js()
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
         assert "createToolbar" in js
         assert "toolbar-filename" in js
         assert "toolbar-size" in js
@@ -664,21 +651,24 @@ class TestViewerToolbar:
 class TestImageViewer:
     """Tests for the enhanced image viewer."""
 
-    def test_render_image_viewer_in_renderer(self):
-        """Renderer JS should contain renderImageViewer function."""
-        js = _get_renderer_js()
-        assert "renderImageViewer" in js
+    def test_image_viewer_in_dispatch_table(self):
+        """Renderer JS should include image viewer in dispatch table."""
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
+        assert "__pv_image" in js
+        assert "'image/*'" in js
 
     def test_zoom_class_in_renderer(self):
-        """Renderer JS should toggle 'zoomed' class on click."""
-        js = _get_renderer_js()
+        """Renderer JS should toggle 'zoomed' class (ImageViewer plugin)."""
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
         assert "zoomed" in js
 
     def test_image_zoom_css(self):
-        """CSS should contain zoom styles for images."""
-        from pagevault.config import TemplateConfig
+        """ImageViewer plugin CSS should contain zoom styles."""
+        from pagevault.viewers.builtin import ImageViewer
 
-        css = _get_wrap_css(TemplateConfig())
+        css = ImageViewer().css()
         assert ".pagevault-image-viewer" in css
         assert "img.zoomed" in css
         assert "zoom-in" in css
@@ -688,43 +678,47 @@ class TestImageViewer:
 class TestTextViewer:
     """Tests for the enhanced text viewer with line numbers."""
 
-    def test_render_text_viewer_in_renderer(self):
-        """Renderer JS should contain renderTextViewer function."""
-        js = _get_renderer_js()
-        assert "renderTextViewer" in js
-        assert "line-numbers" in js
+    def test_text_viewer_in_dispatch_table(self):
+        """Renderer JS should include text viewer in dispatch table."""
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
+        assert "__pv_text" in js
+        assert "'text/*'" in js
 
     def test_line_numbers_css(self):
-        """CSS should contain line-number gutter styles."""
-        from pagevault.config import TemplateConfig
+        """TextViewer plugin CSS should contain line-number gutter styles."""
+        from pagevault.viewers.builtin import TextViewer
 
-        css = _get_wrap_css(TemplateConfig())
+        css = TextViewer().css()
         assert ".line-numbers" in css
         assert "user-select: none" in css
         assert ".pagevault-text-viewer" in css
 
 
 class TestWrapFileViewers:
-    """End-to-end tests: verify correct viewer functions appear per MIME type."""
+    """End-to-end tests: verify correct viewer plugins appear per MIME type."""
 
     @pytest.mark.parametrize(
-        "filename, content, expected_fn",
+        "filename, content, expected_viewer_var",
         [
-            ("doc.md", b"# Heading\n\nParagraph", "renderMarkdownViewer"),
-            ("notes.txt", b"line1\nline2\nline3", "renderTextViewer"),
-            ("photo.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 50, "renderImageViewer"),
-            ("doc.pdf", b"%PDF-1.4" + b"\x00" * 50, "renderPdfViewer"),
+            ("doc.md", b"# Heading\n\nParagraph", "__pv_markdown"),
+            ("notes.txt", b"line1\nline2\nline3", "__pv_text"),
+            ("photo.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 50, "__pv_image"),
+            ("doc.pdf", b"%PDF-1.4" + b"\x00" * 50, "__pv_pdf"),
         ],
     )
-    def test_viewer_function_present(self, tmp_path, filename, content, expected_fn):
-        """Each MIME type's viewer function should be present in output HTML."""
+    def test_viewer_in_dispatch_table(
+        self, tmp_path, filename, content, expected_viewer_var
+    ):
+        """Each MIME type's viewer appears in the dispatch table."""
         f = tmp_path / filename
         f.write_bytes(content)
 
         output = wrap_file(f, password="pw")
         html = output.read_text()
 
-        assert expected_fn in html
+        assert expected_viewer_var in html
+        assert "__pv_resolveViewer" in html
         # All outputs should have toolbar
         assert "createToolbar" in html
 
@@ -845,12 +839,14 @@ class TestRendererXssPrevention:
 
     def test_file_renderer_escapes_filename(self):
         """Test _get_renderer_js() uses escapeHtml for filename display."""
-        js = _get_renderer_js()
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
         assert "escapeHtml(filename)" in js
 
     def test_file_renderer_has_escapehtml(self):
         """Test _get_renderer_js() defines escapeHtml."""
-        js = _get_renderer_js()
+        viewers = discover_viewers()
+        js = _get_renderer_js(viewers)
         assert "function escapeHtml" in js
 
     def test_site_renderer_escapes_entry(self):

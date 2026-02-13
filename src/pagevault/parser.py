@@ -13,7 +13,14 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 
 from . import __version__
 from .config import DefaultsConfig, PagevaultConfig, TemplateConfig
-from .crypto import PagevaultError, content_hash, decrypt, encrypt, rewrap_keys
+from .crypto import (
+    PagevaultError,
+    content_hash,
+    decrypt,
+    encrypt,
+    pad_content,
+    rewrap_keys,
+)
 
 
 @dataclass
@@ -199,6 +206,7 @@ def lock_html(
     custom_css: str | None = None,
     users: dict[str, str] | None = None,
     meta: dict | None = None,
+    pad: bool = False,
 ) -> str:
     """Lock (encrypt) all <pagevault> regions in an HTML document.
 
@@ -260,8 +268,12 @@ def lock_html(
         # Compute content hash before encryption for integrity verification
         hash_value = content_hash(inner_html)
 
+        # Apply content padding if requested (prevents size leakage)
+        use_pad = pad or (config and config.pad)
+        plaintext = pad_content(inner_html) if use_pad else inner_html
+
         encrypted_data = encrypt(
-            inner_html, password=password, salt=salt, users=users, meta=meta
+            plaintext, password=password, salt=salt, users=users, meta=meta
         )
 
         # Clear element content and set encrypted attributes
@@ -354,6 +366,9 @@ def unlock_html(
         decrypted_content, _meta = decrypt(
             str(encrypted_data), password, username=username
         )
+
+        # Strip null-byte padding (from --pad option during lock)
+        decrypted_content = decrypted_content.rstrip("\x00")
 
         # Verify content hash if present
         if expected_hash:
@@ -823,7 +838,7 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
     sessionStorage.removeItem(STORAGE_KEY);
   }}
 
-  // URL fragment handling
+  // URL fragment handling (only logout — password via URL removed for security)
   function checkFragment() {{
     const hash = location.hash.slice(1);
     if (!hash) return null;
@@ -833,15 +848,6 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
       // Navigate without the hash — works on file:// unlike history.replaceState
       location.replace(location.pathname + location.search);
       return 'logout';
-    }}
-
-    const match = hash.match(/^pagevault_pwd=([^&]+)(&remember)?$/);
-    if (match) {{
-      try {{ history.replaceState(null, '', location.pathname + location.search); }} catch (e) {{}}
-      return {{
-        password: decodeURIComponent(match[1]),
-        remember: match[2] ? 'local' : null
-      }};
     }}
 
     return null;
@@ -932,30 +938,14 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
     }}
 
     async _tryAutoDecrypt() {{
-      // Check URL fragment first
+      // Check URL fragment (only logout supported)
       const fragment = checkFragment();
       if (fragment === 'logout') return;
 
-      let password = null;
-      let username = null;
-      let remember = null;
-
-      if (fragment && fragment.password) {{
-        password = fragment.password;
-        remember = fragment.remember;
-      }} else {{
-        const cred = getStoredCredentials();
-        if (cred) {{
-          password = cred.password;
-          username = cred.username || null;
-        }}
-      }}
-
-      if (password) {{
-        const success = await this._decrypt(password, username);
-        if (success && remember) {{
-          storeCredentials(password, username, remember);
-        }}
+      // Try stored credentials
+      const cred = getStoredCredentials();
+      if (cred) {{
+        await this._decrypt(cred.password, cred.username || null);
       }}
     }}
 
@@ -968,7 +958,8 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
       const result = await decryptContent(encrypted, password, username);
       if (result === null) return false;
 
-      const content = result.content;
+      // Strip null-byte padding (from --pad option during lock)
+      const content = result.content.replace(/\0+$/, '');
       const meta = result.meta;
 
       // Verify content hash if present
@@ -1029,6 +1020,7 @@ def process_file(
     users: dict[str, str] | None = None,
     username: str | None = None,
     meta: dict | None = None,
+    pad: bool = False,
 ) -> bool:
     """Process a single HTML file.
 
@@ -1073,6 +1065,7 @@ def process_file(
             custom_css=custom_css,
             users=users,
             meta=meta,
+            pad=pad,
         )
     else:
         processed = unlock_html(html, password, username=username)

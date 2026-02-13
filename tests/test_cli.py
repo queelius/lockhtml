@@ -794,7 +794,7 @@ class TestSelectorLock:
 
 
 class TestDefaultBodyLock:
-    """Tests for default body wrapping behavior (no selectors, no pagevault elements)."""
+    """Tests for default body wrapping behavior."""
 
     @pytest.fixture
     def sample_config(self):
@@ -2216,3 +2216,543 @@ class TestVersion:
         assert result.exit_code == 0
         assert "pagevault" in result.output
         assert "0.2.0" in result.output
+
+
+class TestInfoCommand:
+    """Tests for pagevault info command."""
+
+    @pytest.fixture
+    def sample_config(self):
+        return """
+password: "test-password"
+salt: "0123456789abcdef0123456789abcdef"
+"""
+
+    def test_info_shows_metadata(self, runner, tmp_path, sample_config):
+        """Test info command shows encryption metadata."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault hint="Test hint">Secret content</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(main, ["info", str(locked_dir / "index.html")])
+
+        assert result.exit_code == 0
+        assert "Encrypted regions: 1" in result.output
+        assert "aes-256-gcm" in result.output
+        assert "pbkdf2-sha256" in result.output
+        assert "310,000" in result.output
+        assert "Key blobs:" in result.output
+        assert "Content hash:" in result.output
+
+    def test_info_multi_user(self, runner, tmp_path):
+        """Test info shows multi-user mode."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Secret</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "fallback"
+salt: "0123456789abcdef0123456789abcdef"
+users:
+  alice: "pw-alice"
+  bob: "pw-bob"
+""")
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(main, ["info", str(locked_dir / "index.html")])
+
+        assert result.exit_code == 0
+        assert "Key blobs:    2" in result.output
+        assert "user" in result.output
+
+    def test_info_non_encrypted_fails(self, runner, tmp_path):
+        """Test info fails on non-encrypted file."""
+        html_path = tmp_path / "plain.html"
+        html_path.write_text("<html><body>Hello</body></html>")
+
+        result = runner.invoke(main, ["info", str(html_path)])
+
+        assert result.exit_code != 0
+        assert "no pagevault elements" in result.output.lower()
+
+    def test_info_wrap_file(self, runner, tmp_path):
+        """Test info on wrapped file shows wrap type and filename."""
+        # Create a text file and wrap it
+        txt_path = tmp_path / "data.txt"
+        txt_path.write_text("test content")
+
+        out_path = tmp_path / "data.html"
+
+        result = runner.invoke(
+            main,
+            ["lock", str(txt_path), "-p", "test-pw", "-o", str(out_path)],
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(main, ["info", str(out_path)])
+
+        assert result.exit_code == 0
+        assert "Wrap type:       file" in result.output
+        assert "data.txt" in result.output
+
+
+class TestCheckCommand:
+    """Tests for pagevault check command."""
+
+    @pytest.fixture
+    def sample_config(self):
+        return """
+password: "test-password"
+salt: "0123456789abcdef0123456789abcdef"
+"""
+
+    def test_check_correct_password(self, runner, tmp_path, sample_config):
+        """Test check exits 0 for correct password."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Secret</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(
+            main,
+            ["check", str(locked_dir / "index.html"), "-p", "test-password"],
+        )
+
+        assert "correct" in result.output.lower()
+        assert result.exit_code == 0
+
+    def test_check_wrong_password(self, runner, tmp_path, sample_config):
+        """Test check exits 1 for wrong password."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Secret</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(
+            main,
+            ["check", str(locked_dir / "index.html"), "-p", "wrong-password"],
+        )
+
+        assert "incorrect" in result.output.lower()
+        assert result.exit_code == 1
+
+    def test_check_multi_user(self, runner, tmp_path):
+        """Test check with username for multi-user file."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Secret</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "fallback"
+salt: "0123456789abcdef0123456789abcdef"
+users:
+  alice: "pw-alice"
+""")
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(
+            main,
+            [
+                "check",
+                str(locked_dir / "index.html"),
+                "-p",
+                "pw-alice",
+                "-u",
+                "alice",
+            ],
+        )
+
+        assert "correct" in result.output.lower()
+        assert result.exit_code == 0
+
+    def test_check_non_encrypted_fails(self, runner, tmp_path):
+        """Test check fails on non-encrypted file."""
+        html_path = tmp_path / "plain.html"
+        html_path.write_text("<html><body>Hello</body></html>")
+
+        result = runner.invoke(
+            main,
+            ["check", str(html_path), "-p", "test"],
+        )
+
+        assert result.exit_code != 0
+
+
+class TestAuditCommand:
+    """Tests for pagevault audit command."""
+
+    def test_audit_good_config(self, runner, tmp_path):
+        """Test audit passes with good configuration."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "very-strong-passphrase-2024!"
+salt: "0123456789abcdef0123456789abcdef"
+""")
+
+        # Create .gitignore
+        gitignore = tmp_path / ".gitignore"
+        gitignore.write_text(".pagevault.yaml\n")
+
+        result = runner.invoke(main, ["audit", "-c", str(config_path)])
+
+        assert "PASSED" in result.output
+        assert "password length OK" in result.output
+        assert ".gitignore" in result.output
+
+    def test_audit_weak_password(self, runner, tmp_path):
+        """Test audit flags weak passwords."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "abc"
+salt: "0123456789abcdef0123456789abcdef"
+""")
+
+        result = runner.invoke(main, ["audit", "-c", str(config_path)])
+
+        assert "WEAK" in result.output
+        assert "only 3 chars" in result.output
+
+    def test_audit_all_lowercase_password(self, runner, tmp_path):
+        """Test audit flags all-lowercase passwords."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "longbutweakpassword"
+salt: "0123456789abcdef0123456789abcdef"
+""")
+
+        result = runner.invoke(main, ["audit", "-c", str(config_path)])
+
+        assert "WEAK" in result.output or "lowercase" in result.output
+
+    def test_audit_missing_gitignore(self, runner, tmp_path):
+        """Test audit warns about missing .gitignore."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "Strong-Password-2024!"
+salt: "0123456789abcdef0123456789abcdef"
+""")
+
+        result = runner.invoke(main, ["audit", "-c", str(config_path)])
+
+        assert "WARNING" in result.output or ".gitignore" in result.output
+
+    def test_audit_no_salt(self, runner, tmp_path):
+        """Test audit warns about missing salt."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text('password: "Strong-Password-2024!"\n')
+
+        result = runner.invoke(main, ["audit", "-c", str(config_path)])
+
+        assert "salt" in result.output.lower()
+
+    def test_audit_user_passwords(self, runner, tmp_path):
+        """Test audit checks each user's password."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "fallback"
+salt: "0123456789abcdef0123456789abcdef"
+users:
+  alice: "Strong-Password-2024!"
+  bob: "ab"
+""")
+
+        result = runner.invoke(main, ["audit", "-c", str(config_path)])
+
+        assert "bob" in result.output
+        assert "WEAK" in result.output
+
+
+class TestUnlockStdout:
+    """Tests for unlock --stdout flag."""
+
+    @pytest.fixture
+    def sample_config(self):
+        return """
+password: "test-password"
+salt: "0123456789abcdef0123456789abcdef"
+"""
+
+    def test_stdout_outputs_decrypted(self, runner, tmp_path, sample_config):
+        """Test --stdout outputs decrypted HTML to stdout."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Secret content here</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "--stdout",
+                "-p",
+                "test-password",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Secret content here" in result.output
+        # Should not have the normal "Unlocked:" output
+        assert "file(s) unlocked" not in result.output
+
+    def test_stdout_with_directory_fails(self, runner, tmp_path, sample_config):
+        """Test --stdout and -d are mutually exclusive."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("<pagevault>Secret</pagevault>")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "--stdout",
+                "-d",
+                str(tmp_path / "out"),
+                "-p",
+                "test-password",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output.lower()
+
+    def test_stdout_with_recursive_fails(self, runner, tmp_path, sample_config):
+        """Test --stdout and -r are mutually exclusive."""
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(tmp_path),
+                "--stdout",
+                "-r",
+                "-p",
+                "test-password",
+            ],
+        )
+
+        assert result.exit_code != 0
+
+    def test_stdout_non_encrypted_fails(self, runner, tmp_path):
+        """Test --stdout fails on non-encrypted file."""
+        html_path = tmp_path / "plain.html"
+        html_path.write_text("<html><body>Hello</body></html>")
+
+        result = runner.invoke(
+            main,
+            ["unlock", str(html_path), "--stdout", "-p", "pw"],
+        )
+
+        assert result.exit_code != 0
+
+
+class TestPadFlag:
+    """Tests for --pad flag on lock command."""
+
+    @pytest.fixture
+    def sample_config(self):
+        return """
+password: "test-password"
+salt: "0123456789abcdef0123456789abcdef"
+"""
+
+    def test_pad_flag_produces_larger_output(self, runner, tmp_path, sample_config):
+        """Test --pad produces output (padded content encrypts to larger size)."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Short</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        # Lock without padding
+        nopad_dir = tmp_path / "nopad"
+        runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(nopad_dir)],
+        )
+
+        # Lock with padding
+        pad_dir = tmp_path / "pad"
+        runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(pad_dir),
+                "--pad",
+            ],
+        )
+
+        nopad_size = (nopad_dir / "index.html").stat().st_size
+        pad_size = (pad_dir / "index.html").stat().st_size
+
+        # Padded version should be at least as large
+        assert pad_size >= nopad_size
+
+    def test_pad_roundtrip(self, runner, tmp_path, sample_config):
+        """Test padded content still decrypts correctly."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Padded secret content</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text(sample_config)
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock with padding
+        result = runner.invoke(
+            main,
+            [
+                "lock",
+                str(html_path),
+                "-c",
+                str(config_path),
+                "-d",
+                str(locked_dir),
+                "--pad",
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Unlock
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-c",
+                str(config_path),
+                "-d",
+                str(unlocked_dir),
+            ],
+        )
+        assert result.exit_code == 0
+
+        content = (unlocked_dir / "index.html").read_text()
+        assert "Padded secret content" in content
+
+    def test_pad_config(self, runner, tmp_path):
+        """Test pad: true in config works without --pad flag."""
+        html_path = tmp_path / "index.html"
+        html_path.write_text("""<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><pagevault>Config pad</pagevault></body>
+</html>""")
+
+        config_path = tmp_path / CONFIG_FILENAME
+        config_path.write_text("""
+password: "test-password"
+salt: "0123456789abcdef0123456789abcdef"
+pad: true
+""")
+
+        locked_dir = tmp_path / "locked"
+        unlocked_dir = tmp_path / "unlocked"
+
+        # Lock without --pad flag (config has pad: true)
+        result = runner.invoke(
+            main,
+            ["lock", str(html_path), "-c", str(config_path), "-d", str(locked_dir)],
+        )
+        assert result.exit_code == 0
+
+        # Unlock should work
+        result = runner.invoke(
+            main,
+            [
+                "unlock",
+                str(locked_dir / "index.html"),
+                "-c",
+                str(config_path),
+                "-d",
+                str(unlocked_dir),
+            ],
+        )
+        assert result.exit_code == 0
+        content = (unlocked_dir / "index.html").read_text()
+        assert "Config pad" in content

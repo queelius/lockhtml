@@ -34,7 +34,8 @@ class TestLockRouting:
         html_file.write_text("<html><body><pagevault>secret</pagevault></body></html>")
 
         result = runner.invoke(
-            main, ["lock", str(html_file), "-p", "password", "-d", str(temp_dir / "out")]
+            main,
+            ["lock", str(html_file), "-p", "password", "-d", str(temp_dir / "out")],
         )
         assert result.exit_code == 0
         assert "Locked:" in result.output
@@ -93,9 +94,7 @@ class TestLockRouting:
         file1.write_text("Document 1")
         file2.write_text("doc,value\n1,2")
 
-        result = runner.invoke(
-            main, ["lock", str(file1), str(file2), "-p", "password"]
-        )
+        result = runner.invoke(main, ["lock", str(file1), str(file2), "-p", "password"])
         assert result.exit_code == 0
         assert "Wrapped:" in result.output
         assert (temp_dir / "doc1.html").exists()
@@ -389,9 +388,10 @@ class TestDryRun:
         html_file = temp_dir / "index.html"
         html_file.write_text("<html><body><pagevault>secret</pagevault></body></html>")
 
+        out_dir = str(temp_dir / "out")
         result = runner.invoke(
             main,
-            ["lock", str(html_file), "-p", "password", "-d", str(temp_dir / "out"), "--dry-run"],
+            ["lock", str(html_file), "-p", "password", "-d", out_dir, "--dry-run"],
         )
         assert result.exit_code == 0
         assert "Would lock:" in result.output
@@ -451,9 +451,10 @@ class TestMixedFileTypes:
         pdf_file.write_text("PDF")
 
         # Process HTML
+        html_out = str(temp_dir / "html_out")
         result1 = runner.invoke(
             main,
-            ["lock", str(html_file), "-p", "password", "-d", str(temp_dir / "html_out")],
+            ["lock", str(html_file), "-p", "password", "-d", html_out],
         )
         assert result1.exit_code == 0
 
@@ -471,28 +472,23 @@ class TestMultiUserMode:
     def test_lock_with_users_config_html(self, runner, temp_dir):
         """HTML locking works with multi-user config."""
         config_file = temp_dir / ".pagevault.yaml"
-        config_file.write_text(
-            "users:\n  alice: alice-pw\n  bob: bob-pw\n"
-        )
+        config_file.write_text("users:\n  alice: alice-pw\n  bob: bob-pw\n")
         html_file = temp_dir / "index.html"
         html_file.write_text("<html><body><pagevault>secret</pagevault></body></html>")
 
+        out_dir = str(temp_dir / "out")
         result = runner.invoke(
             main,
-            ["lock", str(html_file), "-c", str(config_file), "-d", str(temp_dir / "out")],
+            ["lock", str(html_file), "-c", str(config_file), "-d", out_dir],
         )
         assert result.exit_code == 0
 
     def test_lock_with_users_config_wrap_file(self, runner, temp_dir):
         """File wrapping works with multi-user config."""
         config_file = temp_dir / ".pagevault.yaml"
-        config_file.write_text(
-            "users:\n  alice: alice-pw\n  bob: bob-pw\n"
-        )
+        config_file.write_text("users:\n  alice: alice-pw\n  bob: bob-pw\n")
         pdf_file = temp_dir / "doc.pdf"
         pdf_file.write_text("PDF")
 
-        result = runner.invoke(
-            main, ["lock", str(pdf_file), "-c", str(config_file)]
-        )
+        result = runner.invoke(main, ["lock", str(pdf_file), "-c", str(config_file)])
         assert result.exit_code == 0

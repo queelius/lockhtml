@@ -17,8 +17,11 @@ from pagevault.crypto import (
     encrypt,
     generate_salt,
     hex_to_salt,
+    inspect_payload,
+    pad_content,
     rewrap_keys,
     salt_to_hex,
+    verify_password,
 )
 
 
@@ -579,3 +582,128 @@ class TestRewrapKeys:
                 ciphertext,
                 old_password="pw",
             )
+
+
+class TestPadContent:
+    """Tests for pad_content function."""
+
+    def test_pads_to_power_of_2(self):
+        """Test padding reaches a power-of-2 byte boundary."""
+        text = "Hello"  # 5 bytes UTF-8
+        padded = pad_content(text)
+        assert len(padded.encode("utf-8")) == 8  # next power of 2 after 5
+
+    def test_exact_power_of_2_no_change(self):
+        """Test content already at power-of-2 is unchanged."""
+        text = "ab"  # exactly 2 bytes
+        padded = pad_content(text)
+        assert padded == text
+
+    def test_empty_string_no_change(self):
+        """Test empty string is unchanged."""
+        padded = pad_content("")
+        assert padded == ""
+
+    def test_large_content(self):
+        """Test padding works for larger content."""
+        text = "x" * 1000  # 1000 bytes
+        padded = pad_content(text)
+        padded_len = len(padded.encode("utf-8"))
+        assert padded_len == 1024  # next power of 2 after 1000
+
+    def test_padded_starts_with_original(self):
+        """Test padded content starts with original content."""
+        text = "Hello World"
+        padded = pad_content(text)
+        assert padded.startswith(text)
+
+    def test_unicode_content(self):
+        """Test padding works with multi-byte Unicode."""
+        text = "Hello 世界"  # 5 + 1 + 6 = 12 bytes
+        padded = pad_content(text)
+        padded_len = len(padded.encode("utf-8"))
+        assert padded_len == 16  # next power of 2 after 12
+
+    def test_pad_encrypt_decrypt_roundtrip(self):
+        """Test padded content survives encrypt/decrypt with null-byte stripping."""
+        original = "<p>Secret content</p>"
+        padded = pad_content(original)
+        assert len(padded.encode("utf-8")) > len(original.encode("utf-8"))
+
+        encrypted = encrypt(padded, password="pw")
+        decrypted, _meta = decrypt(encrypted, password="pw")
+
+        # After stripping null bytes, original content is recovered
+        stripped = decrypted.rstrip("\x00")
+        assert stripped == original
+
+
+class TestInspectPayload:
+    """Tests for inspect_payload function."""
+
+    def test_inspect_basic(self):
+        """Test inspecting a basic encrypted payload."""
+        payload = encrypt("test content", password="pw")
+        info = inspect_payload(payload)
+
+        assert info["version"] == 2
+        assert info["algorithm"] == "aes-256-gcm"
+        assert info["kdf"] == "pbkdf2-sha256"
+        assert info["iterations"] == 310000
+        assert info["key_count"] == 1
+        assert info["salt_length"] == 16
+        assert info["iv_length"] == 12
+        assert info["ciphertext_length"] > 0
+
+    def test_inspect_multi_user(self):
+        """Test inspecting a multi-user payload."""
+        payload = encrypt(
+            "secret", users={"alice": "pw-a", "bob": "pw-b", "charlie": "pw-c"}
+        )
+        info = inspect_payload(payload)
+
+        assert info["key_count"] == 3
+
+    def test_inspect_invalid_base64(self):
+        """Test error on invalid base64."""
+        with pytest.raises(PagevaultError, match="Invalid base64"):
+            inspect_payload("not-valid-base64!!!")
+
+    def test_inspect_invalid_json(self):
+        """Test error on valid base64 but invalid JSON."""
+        import base64
+
+        payload = base64.b64encode(b"not json").decode("ascii")
+        with pytest.raises(PagevaultError, match="Invalid JSON"):
+            inspect_payload(payload)
+
+
+class TestVerifyPassword:
+    """Tests for verify_password function."""
+
+    def test_correct_password(self):
+        """Test correct password returns True."""
+        payload = encrypt("secret", password="correct-pw")
+        assert verify_password(payload, "correct-pw") is True
+
+    def test_wrong_password(self):
+        """Test wrong password returns False."""
+        payload = encrypt("secret", password="correct-pw")
+        assert verify_password(payload, "wrong-pw") is False
+
+    def test_multi_user_correct(self):
+        """Test correct user/password returns True."""
+        payload = encrypt("secret", users={"alice": "pw-a", "bob": "pw-b"})
+        assert verify_password(payload, "pw-a", username="alice") is True
+        assert verify_password(payload, "pw-b", username="bob") is True
+
+    def test_multi_user_wrong(self):
+        """Test wrong user/password returns False."""
+        payload = encrypt("secret", users={"alice": "pw-a"})
+        assert verify_password(payload, "pw-a", username="bob") is False
+        assert verify_password(payload, "wrong", username="alice") is False
+
+    def test_invalid_payload(self):
+        """Test error on invalid payload."""
+        with pytest.raises(PagevaultError):
+            verify_password("invalid", "pw")

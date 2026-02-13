@@ -49,8 +49,10 @@ class PagevaultConfig:
     users: dict[str, str] | None = None  # {username: password} for multi-user
     user: str | None = None  # Default username for unlock
     managed: list[str] | None = None  # Glob patterns for sync command
+    pad: bool = False  # Pad content to power-of-2 before encryption
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     template: TemplateConfig = field(default_factory=TemplateConfig)
+    viewers: dict[str, bool] | None = None  # Viewer overrides {name: enabled}
     custom_css: str | None = None  # Custom CSS content (replaces default styles)
     config_path: Path | None = None  # Path where config was loaded from
 
@@ -235,6 +237,9 @@ def _load_config_file(config_path: Path) -> PagevaultConfig:
             button_text=template_data.get("button_text", config.template.button_text),
             error_text=template_data.get("error_text", config.template.error_text),
             placeholder=template_data.get("placeholder", config.template.placeholder),
+            username_placeholder=template_data.get(
+                "username_placeholder", config.template.username_placeholder
+            ),
             color_primary=template_data.get(
                 "color_primary", config.template.color_primary
             ),
@@ -255,13 +260,13 @@ def _load_config_file(config_path: Path) -> PagevaultConfig:
     if "managed" in data and isinstance(data["managed"], list):
         config.managed = [str(p) for p in data["managed"]]
 
-    # Load template username_placeholder
-    if "template" in data and isinstance(data["template"], dict):
-        template_data_extra = data["template"]
-        if "username_placeholder" in template_data_extra:
-            config.template.username_placeholder = template_data_extra[
-                "username_placeholder"
-            ]
+    # Load pad setting
+    if "pad" in data:
+        config.pad = bool(data["pad"])
+
+    # Load viewer overrides
+    if "viewers" in data and isinstance(data["viewers"], dict):
+        config.viewers = {str(k): bool(v) for k, v in data["viewers"].items()}
 
     # Load custom CSS from file
     if "css_file" in data:
@@ -405,6 +410,8 @@ def config_to_dict(config: PagevaultConfig) -> dict[str, Any]:
     else:
         result["managed"] = None
 
+    result["pad"] = config.pad
+
     result["defaults"] = {
         "remember": config.defaults.remember,
         "remember_days": config.defaults.remember_days,
@@ -419,5 +426,6 @@ def config_to_dict(config: PagevaultConfig) -> dict[str, Any]:
         "color_primary": config.template.color_primary,
         "color_secondary": config.template.color_secondary,
     }
+    result["viewers"] = config.viewers
     result["config_path"] = str(config.config_path) if config.config_path else None
     return result

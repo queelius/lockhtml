@@ -237,15 +237,6 @@ defaults:
 - `"local"`: Remember on this device (expires after remember_days)
 - `"ask"`: Let visitor choose
 
-**Q: Can I auto-decrypt with URL parameter?**
-A: Yes, include password in URL fragment:
-
-```
-https://example.com/page.html#pagevault_pwd=mypassword
-```
-
-Note: This puts password in browser history! Only for temporary/public passwords.
-
 **Q: Can I logout visitors?**
 A: Yes, use URL fragment:
 
@@ -254,6 +245,54 @@ https://example.com/page.html#pagevault_logout
 ```
 
 Clears stored password from browser.
+
+## Inspection & Verification
+
+**Q: How can I inspect an encrypted file without the password?**
+A: Use the `info` command:
+
+```bash
+pagevault info encrypted.html
+```
+
+This shows encryption metadata (algorithm, key count, ciphertext size, viewers, etc.) without decrypting content.
+
+**Q: How can I verify a password without decrypting the whole file?**
+A: Use the `check` command:
+
+```bash
+pagevault check encrypted.html -p "test-password"
+```
+
+Exit code 0 means correct, 1 means incorrect. Useful for scripting.
+
+**Q: How do I audit my encryption setup?**
+A: Use the `audit` command:
+
+```bash
+pagevault audit
+```
+
+This checks password strength, salt quality, config hygiene (e.g., `.pagevault.yaml` in `.gitignore`), and file integrity.
+
+## Viewer Plugins
+
+**Q: What are viewer plugins?**
+A: When you wrap non-HTML files (PDFs, images, etc.) with `pagevault lock`, viewer plugins provide in-browser rendering after decryption. Built-in viewers handle images, PDFs, HTML, plain text, and Markdown.
+
+**Q: Can I add custom viewers?**
+A: Yes. Viewer plugins use Python entry points. Install a package that registers under the `pagevault.viewers` group, and it will be discovered automatically at lock time. See the [Security](security.md) page for the plugin trust model.
+
+**Q: Can I disable specific viewers?**
+A: Yes, use the `viewers` section in `.pagevault.yaml`:
+
+```yaml
+viewers:
+  pdf: false      # Disable PDF viewer
+  markdown: true  # Explicitly enable Markdown viewer
+```
+
+If the `viewers` section is absent, all discovered viewers are enabled.
 
 ## Troubleshooting
 

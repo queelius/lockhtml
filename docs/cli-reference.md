@@ -68,6 +68,7 @@ pagevault lock page.html --dry-run
 | `--css` | | Custom CSS file for password prompt |
 | `--site` | | Bundle directory as encrypted site |
 | `--entry` | | Entry point for `--site` mode (default: `index.html`) |
+| `--pad` | | Pad content to power-of-2 boundary before encryption (prevents size leakage) |
 | `--dry-run` | | Preview without changes |
 
 ---
@@ -97,6 +98,9 @@ pagevault unlock _locked/page.html -u alice
 
 # Use custom password
 pagevault unlock _locked/page.html -p "mypassword"
+
+# Output to stdout for piping
+pagevault unlock report.pdf.html --stdout -p "$SECRET" > report.pdf
 ```
 
 **Options:**
@@ -107,6 +111,7 @@ pagevault unlock _locked/page.html -p "mypassword"
 | `--password` | `-p` | Decryption password |
 | `--username` | `-u` | Username for multi-user encrypted content |
 | `--directory` | `-d` | Output directory (default: `_unlocked/`) |
+| `--stdout` | | Output decrypted content to stdout (for piping) |
 | `--config` | `-c` | Path to config file |
 | `--dry-run` | | Preview without changes |
 
@@ -183,6 +188,104 @@ pagevault sync _locked/ -r --dry-run
 | `--recursive` | `-r` | Process directories recursively |
 | `--rekey` | | Force complete re-key operation |
 | `--dry-run` | | Preview without changes |
+
+---
+
+### info
+
+Inspect an encrypted HTML file without requiring a password. Shows encryption metadata, viewer info, and runtime details.
+
+```bash
+pagevault info [PATH]
+```
+
+**Examples:**
+
+```bash
+# Inspect an encrypted file
+pagevault info encrypted.html
+
+# Inspect a locked file
+pagevault info _locked/index.html
+```
+
+The output includes:
+- Number of encrypted regions
+- Encryption version, algorithm, KDF, and iteration count
+- Key blob count (number of users)
+- Ciphertext size
+- Hints, titles, and remember settings
+- Embedded viewer information
+- Wrap type (file or site) and associated metadata
+
+---
+
+### check
+
+Verify a password against an encrypted file without decrypting content. Performs fast key verification (one PBKDF2 + one AES-GCM unwrap).
+
+```bash
+pagevault check [OPTIONS] [PATH]
+```
+
+Exit code 0 means the password is correct; exit code 1 means incorrect.
+
+**Examples:**
+
+```bash
+# Verify a password
+pagevault check encrypted.html -p "test-password"
+
+# Verify for a specific user
+pagevault check _locked/file.html -p "pw" -u alice
+
+# Use in scripts
+if pagevault check file.html -p "$PASSWORD"; then
+  echo "Password correct"
+fi
+```
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--password` | `-p` | Password to verify (required) |
+| `--username` | `-u` | Username for multi-user content |
+
+---
+
+### audit
+
+Run comprehensive health checks on configuration and encrypted files. Checks password strength, salt quality, config hygiene, and file integrity.
+
+```bash
+pagevault audit [OPTIONS]
+```
+
+Exit code 0 means all checks passed (possibly with warnings); exit code 1 means issues were found.
+
+**Examples:**
+
+```bash
+# Audit current config
+pagevault audit
+
+# Audit specific config file
+pagevault audit -c .pagevault.yaml
+```
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Path to config file |
+
+The audit checks:
+- **Password strength**: Length, character classes, entropy estimate
+- **Salt quality**: Length and randomness
+- **Config hygiene**: Whether `.pagevault.yaml` is in `.gitignore`
+- **Environment**: Whether `PAGEVAULT_PASSWORD` is set (security warning)
+- **File integrity**: Content hashes on managed files
 
 ---
 

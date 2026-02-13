@@ -259,6 +259,41 @@ See [Configuration](configuration.md) for all options:
 - `title`: Label for encrypted sections
 - `users`: Multi-user encryption
 
+## Inspecting Encrypted Files
+
+After encrypting files, you can inspect and verify them without decrypting.
+
+### View Metadata
+
+Use `info` to see encryption details without a password:
+
+```bash
+pagevault info _locked/example.html
+```
+
+This shows the encryption algorithm, number of encrypted regions, ciphertext sizes, viewer information, and other metadata.
+
+### Verify a Password
+
+Use `check` to test whether a password is correct:
+
+```bash
+pagevault check _locked/example.html -p "your-password"
+# Exit code 0 = correct, 1 = incorrect
+```
+
+This performs a fast key verification without decrypting the full content. Useful for scripting and CI/CD pipelines.
+
+## Auditing Your Setup
+
+Run `audit` to check your configuration for common issues:
+
+```bash
+pagevault audit
+```
+
+The audit checks password strength, salt quality, whether `.pagevault.yaml` is in `.gitignore`, and integrity of managed files. Fix any reported issues to improve your security posture.
+
 ## Next Steps
 
 - Explore [CLI Reference](cli-reference.md) for all commands

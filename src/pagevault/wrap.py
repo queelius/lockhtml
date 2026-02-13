@@ -5,13 +5,25 @@ that can be decrypted and rendered in the browser.
 """
 
 import base64
+import logging
 import mimetypes
+import re
 import zipfile
 from io import BytesIO
 from pathlib import Path
 
 from .config import PagevaultConfig
-from .crypto import PagevaultError, content_hash, encrypt
+from .crypto import PagevaultError, content_hash, encrypt, pad_content
+from .viewers import discover_viewers, resolve_viewer
+
+logger = logging.getLogger(__name__)
+
+# Defense-in-depth: re-validate viewer names before JS injection even though
+# ViewerPlugin.__init_subclass__ already checks at class definition time.
+_SAFE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_SAFE_MIME_RE = re.compile(
+    r"^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*/(\*|[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*)$"
+)
 
 # MIME type detection
 MIME_OVERRIDES = {
@@ -19,21 +31,6 @@ MIME_OVERRIDES = {
     ".markdown": "text/markdown",
     ".svg": "image/svg+xml",
     ".webp": "image/webp",
-}
-
-# Rendering categories
-IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/svg+xml", "image/webp"}
-PDF_MIMES = {"application/pdf"}
-MARKDOWN_MIMES = {"text/markdown"}
-HTML_MIMES = {"text/html"}
-TEXT_MIMES = {
-    "text/plain",
-    "text/css",
-    "text/javascript",
-    "application/json",
-    "application/xml",
-    "text/xml",
-    "text/csv",
 }
 
 
@@ -60,6 +57,7 @@ def wrap_file(
     config: PagevaultConfig | None = None,
     output_path: Path | None = None,
     users: dict[str, str] | None = None,
+    pad: bool = False,
 ) -> Path:
     """Wrap a single file into a self-contained encrypted HTML.
 
@@ -103,21 +101,31 @@ def wrap_file(
     # Get salt from config
     salt = config.salt if config else None
 
-    # Encrypt: the plaintext is the base64-encoded file data
+    # Compute content hash for integrity (before padding)
+    hash_value = content_hash(b64_data)
+
+    # Apply content padding if requested
+    use_pad = pad or (config and config.pad)
+    plaintext = pad_content(b64_data) if use_pad else b64_data
+
+    # Encrypt: the plaintext is the (optionally padded) base64-encoded file data
     encrypted_payload = encrypt(
-        b64_data,
+        plaintext,
         password=password,
         salt=salt,
         users=users,
         meta=meta,
     )
 
-    # Compute content hash for integrity
-    hash_value = content_hash(b64_data)
-
     # Determine output path
     if output_path is None:
         output_path = file_path.with_suffix(".html")
+
+    # Discover active viewers and resolve dependencies for this file type
+    viewers = discover_viewers(config)
+    _log_active_viewers(viewers)
+    matching_viewer = resolve_viewer(mime, viewers)
+    viewer_deps = matching_viewer.dependencies() if matching_viewer else []
 
     # Generate HTML
     html = _generate_wrap_html(
@@ -128,7 +136,8 @@ def wrap_file(
         title=f"Protected: {file_path.name}",
         config=config,
         users=users,
-        include_marked=(mime in MARKDOWN_MIMES),
+        viewers=viewers,
+        viewer_deps=viewer_deps,
     )
 
     # Write output
@@ -149,6 +158,7 @@ def wrap_site(
     output_path: Path | None = None,
     users: dict[str, str] | None = None,
     entry: str = "index.html",
+    pad: bool = False,
 ) -> Path:
     """Wrap a directory into a self-contained encrypted HTML.
 
@@ -206,23 +216,32 @@ def wrap_site(
     # Get salt from config
     salt = config.salt if config else None
 
+    # Compute content hash (before padding)
+    hash_value = content_hash(b64_data)
+
+    # Apply content padding if requested
+    use_pad = pad or (config and config.pad)
+    plaintext = pad_content(b64_data) if use_pad else b64_data
+
     # Encrypt
     encrypted_payload = encrypt(
-        b64_data,
+        plaintext,
         password=password,
         salt=salt,
         users=users,
         meta=meta,
     )
 
-    # Compute content hash
-    hash_value = content_hash(b64_data)
-
     # Determine output path
     if output_path is None:
         output_path = dir_path.parent / f"{dir_path.name}.html"
 
-    # Generate HTML
+    # Generate HTML.
+    # Site mode uses its own renderer (__pagevault_renderSite) that handles
+    # all file types via data URIs inside the site iframe. Individual file
+    # viewers are not needed — the site's own HTML/CSS/JS runs inside the
+    # sandboxed iframe. Passing viewers=[] produces an empty dispatch table,
+    # which is intentional: renderFile is only reached for non-site payloads.
     html = _generate_wrap_html(
         encrypted_payload=encrypted_payload,
         content_hash=hash_value,
@@ -246,6 +265,20 @@ def wrap_site(
     return output_path
 
 
+def _log_active_viewers(viewers: list) -> None:
+    """Log active viewer plugins at INFO level for auditability."""
+    if not viewers:
+        return
+    for viewer in viewers:
+        source = type(viewer).__module__.rsplit(".", 1)[0]
+        logger.info(
+            "Active viewer: %s (%s) [%s]",
+            viewer.name,
+            ", ".join(viewer.mime_types),
+            source,
+        )
+
+
 def _generate_wrap_html(
     encrypted_payload: str,
     content_hash: str,
@@ -256,7 +289,8 @@ def _generate_wrap_html(
     config: PagevaultConfig | None = None,
     users: dict[str, str] | None = None,
     include_jszip: bool = False,
-    include_marked: bool = False,
+    viewers: list | None = None,
+    viewer_deps: list[str] | None = None,
 ) -> str:
     """Generate self-contained HTML with encrypted payload.
 
@@ -270,6 +304,8 @@ def _generate_wrap_html(
         config: Optional configuration.
         users: Multi-user dict (affects data-mode attribute).
         include_jszip: Whether to include JSZip library.
+        viewers: Active ViewerPlugin instances for the dispatch table.
+        viewer_deps: JS dependency contents to bundle (from matching viewer).
 
     Returns:
         Complete HTML string.
@@ -292,10 +328,16 @@ def _generate_wrap_html(
 
     attrs_str = "\n    ".join(attrs)
 
-    # Get CSS and JS
-    css = _get_wrap_css(template)
+    # Compose CSS: framework + active viewer styles.
+    # Viewer CSS is escaped to prevent </style> breakout.
+    framework_css = _get_wrap_css(template)
+    viewer_css = "\n".join(
+        _escape_for_script_block(v.css()) for v in (viewers or []) if v.css()
+    )
+    css = framework_css + viewer_css
+
     crypto_js = _get_crypto_js()
-    renderer_js = _get_renderer_js()
+    renderer_js = _get_renderer_js(viewers or [])
 
     jszip_block = ""
     site_js = ""
@@ -303,9 +345,12 @@ def _generate_wrap_html(
         jszip_block = f"\n<script data-pagevault-runtime>{_get_jszip_shim()}</script>"
         site_js = _get_site_renderer_js()
 
-    marked_block = ""
-    if include_marked:
-        marked_block = f"\n<script data-pagevault-runtime>{_get_marked_js()}</script>"
+    # Include viewer dependencies (e.g. marked.js for markdown).
+    # Dependencies are escaped to prevent </script> breakout.
+    dep_blocks = "".join(
+        f"\n<script data-pagevault-runtime>{_escape_for_script_block(dep)}</script>"
+        for dep in (viewer_deps or [])
+    )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -318,7 +363,7 @@ def _generate_wrap_html(
 <body>
   <pagevault
     {attrs_str}>
-  </pagevault>{jszip_block}{marked_block}
+  </pagevault>{jszip_block}{dep_blocks}
   <script data-pagevault-runtime>
 {crypto_js}
 
@@ -340,20 +385,18 @@ def _html_escape(s: str) -> str:
     )
 
 
-def _get_marked_js() -> str:
-    """Load vendored marked.js for markdown rendering.
-
-    Returns:
-        Contents of marked.min.js.
-    """
-    vendor_path = Path(__file__).parent / "vendor" / "marked.min.js"
-    return vendor_path.read_text(encoding="utf-8")
-
-
 def _get_wrap_css(template) -> str:
-    """Generate CSS for the wrap password prompt."""
+    """Generate framework CSS for the wrap password prompt and viewer chrome.
+
+    Viewer-specific CSS (image zoom, text line numbers, markdown styles)
+    is provided by each ViewerPlugin.css() method and composed separately.
+    """
     return f"""
 /* pagevault wrap styles */
+:root {{
+  --pv-color-primary: {template.color_primary};
+  --pv-color-secondary: {template.color_secondary};
+}}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
 
@@ -464,111 +507,6 @@ pagevault[data-decrypted] {{
   line-height: 1.6;
 }}
 
-/* Image viewer */
-.pagevault-image-viewer {{
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  min-height: calc(100vh - 40px);
-  background: #f0f0f0;
-  padding: 1rem;
-  overflow: auto;
-}}
-.pagevault-image-viewer img {{
-  max-width: 100%;
-  max-height: calc(100vh - 72px);
-  height: auto;
-  display: block;
-  cursor: zoom-in;
-  object-fit: contain;
-}}
-.pagevault-image-viewer img.zoomed {{
-  max-width: none;
-  max-height: none;
-  cursor: zoom-out;
-}}
-
-/* Text viewer with line numbers */
-.pagevault-text-viewer {{
-  display: flex;
-  min-height: calc(100vh - 40px);
-  background: #f5f5f5;
-}}
-.pagevault-text-viewer .line-numbers {{
-  padding: 1rem 0.75rem 1rem 1rem;
-  text-align: right;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: #999;
-  user-select: none;
-  -webkit-user-select: none;
-  border-right: 1px solid #ddd;
-  background: #eee;
-}}
-.pagevault-text-viewer pre {{
-  flex: 1;
-  padding: 1rem;
-  overflow-x: auto;
-}}
-
-/* Markdown rendered view */
-.markdown-body {{
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 2rem;
-  line-height: 1.7;
-  color: #24292e;
-}}
-.markdown-body h1, .markdown-body h2, .markdown-body h3,
-.markdown-body h4, .markdown-body h5, .markdown-body h6 {{
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
-  font-weight: 600;
-  line-height: 1.25;
-}}
-.markdown-body h1 {{ font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid #eee; }}
-.markdown-body h2 {{ font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid #eee; }}
-.markdown-body h3 {{ font-size: 1.25em; }}
-.markdown-body a {{ color: {template.color_primary}; text-decoration: none; }}
-.markdown-body a:hover {{ text-decoration: underline; }}
-.markdown-body table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
-.markdown-body th, .markdown-body td {{ border: 1px solid #ddd; padding: 0.5em 0.75em; text-align: left; }}
-.markdown-body th {{ background: #f6f8fa; font-weight: 600; }}
-.markdown-body code {{
-  padding: 0.2em 0.4em;
-  background: #f0f0f0;
-  border-radius: 3px;
-  font-size: 0.85em;
-  font-family: 'Consolas', 'Monaco', monospace;
-}}
-.markdown-body pre {{
-  padding: 1em;
-  background: #f6f8fa;
-  border-radius: 4px;
-  overflow-x: auto;
-}}
-.markdown-body pre code {{ padding: 0; background: none; font-size: 0.9em; }}
-.markdown-body blockquote {{
-  margin: 1em 0;
-  padding: 0.5em 1em;
-  border-left: 4px solid #ddd;
-  color: #666;
-}}
-.markdown-body hr {{ border: none; border-top: 1px solid #ddd; margin: 1.5em 0; }}
-.markdown-body ul, .markdown-body ol {{ padding-left: 2em; margin: 0.5em 0; }}
-.markdown-body li {{ margin: 0.25em 0; }}
-.markdown-body img {{ max-width: 100%; height: auto; }}
-.markdown-body p {{ margin: 0.75em 0; }}
-
-/* Markdown source toggle */
-.markdown-source {{ max-width: 800px; margin: 0 auto; padding: 0; }}
-.markdown-source pre {{
-  padding: 2rem;
-  background: #f5f5f5;
-  min-height: calc(100vh - 40px);
-}}
-
 /* Download view */
 .pagevault-download {{
   display: flex;
@@ -669,55 +607,109 @@ def _get_crypto_js() -> str:
 })();"""
 
 
-def _get_renderer_js() -> str:
-    """Generate the file renderer JS."""
-    return """
+def _escape_for_script_block(s: str) -> str:
+    """Escape content for safe embedding inside a <script> or <style> block.
+
+    Replaces ``</`` with ``<\\/`` to prevent premature closing of the
+    enclosing HTML tag. This is the same defense used by _js_string()
+    in parser.py — see MEMORY.md "Script-tag breakout" entry.
+    """
+    return s.replace("</", "<\\/")
+
+
+def _get_renderer_js(viewers: list) -> str:  # noqa: E501
+    """Generate the file renderer JS with viewer dispatch table.
+
+    Builds a dispatch table from active ViewerPlugin instances. Each viewer's
+    js() returns an async function(container, blob, url, meta, toolbar).
+    At runtime, __pv_resolveViewer(mime) finds the best match (exact > wildcard).
+
+    Security notes:
+    - innerHTML usage: all user-controlled values (filename, size) are passed
+      through escapeHtml() before insertion. Download URLs are blob: URLs.
+    - Viewer name/MIME: validated against strict regex before injection into JS.
+    - Viewer js() output: escaped via _escape_for_script_block() to prevent
+      </script> breakout.
+    """
+    # Build viewer variable definitions and dispatch table entries.
+    # Viewer JS is injected via f-string substitution — literal braces
+    # inside the viewer function bodies pass through correctly.
+    viewer_defs_parts = []
+    dispatch_entries = []
+
+    for viewer in viewers:
+        # Defense-in-depth: re-validate at injection boundary.
+        # Skip the entire viewer if name or any MIME type is unsafe.
+        if not _SAFE_NAME_RE.match(viewer.name):
+            logger.warning("Skipping viewer with unsafe name: %r", viewer.name)
+            continue
+        # for/else: else runs only if no break (all MIME types passed)
+        for mt in viewer.mime_types:
+            if not _SAFE_MIME_RE.match(mt):
+                logger.warning(
+                    "Skipping viewer %r: unsafe MIME type %r",
+                    viewer.name,
+                    mt,
+                )
+                break
+        else:
+            # All MIME types validated — safe to inject this viewer
+            var_name = "__pv_" + viewer.name
+            safe_js = _escape_for_script_block(viewer.js())
+            viewer_defs_parts.append("  var " + var_name + " = " + safe_js + ";")
+            for mime_type in viewer.mime_types:
+                dispatch_entries.append("    '" + mime_type + "': " + var_name)
+
+    viewer_defs = "\n\n".join(viewer_defs_parts)
+    dispatch_table = ",\n".join(dispatch_entries)
+
+    # The framework IIFE uses f-strings: {{ }} produce literal { } in JS output.
+    # {viewer_defs} and {dispatch_table} are Python substitutions whose
+    # contents (containing JS braces) are inserted verbatim.
+    return f"""
 // pagevault wrap renderer
-(function() {
+(function() {{
   'use strict';
 
-  const el = document.querySelector('pagevault[data-encrypted]');
+  var el = document.querySelector('pagevault[data-encrypted]');
   if (!el) return;
 
-  const isUserMode = el.getAttribute('data-mode') === 'user';
-  const filename = el.getAttribute('data-filename') || 'file';
-  const wrapType = el.getAttribute('data-wrap-type') || 'file';
+  var isUserMode = el.getAttribute('data-mode') === 'user';
+  var filename = el.getAttribute('data-filename') || 'file';
+  var wrapType = el.getAttribute('data-wrap-type') || 'file';
 
-  // Render password prompt
-  el.innerHTML = `
-    <div class="pagevault-container">
-      <div class="pagevault-icon">🔒</div>
-      <div class="pagevault-title">Protected Content</div>
-      <div class="pagevault-filename">${escapeHtml(filename)}</div>
-      <form class="pagevault-form">
-        ${isUserMode ? '<input type="text" class="pagevault-input" placeholder="Username" autocomplete="username">' : ''}
-        <input type="password" class="pagevault-input pagevault-password" placeholder="Password" autocomplete="current-password">
-        <button type="submit" class="pagevault-button">Decrypt</button>
-        <div class="pagevault-error" style="display: none;"></div>
-      </form>
-    </div>
-  `;
+  // Render password prompt — escapeHtml sanitizes the filename
+  el.innerHTML = '<div class="pagevault-container">' +
+    '<div class="pagevault-icon">\\u{{1F512}}</div>' +
+    '<div class="pagevault-title">Protected Content</div>' +
+    '<div class="pagevault-filename">' + escapeHtml(filename) + '</div>' +
+    '<form class="pagevault-form">' +
+    (isUserMode ? '<input type="text" class="pagevault-input" placeholder="Username" autocomplete="username">' : '') +
+    '<input type="password" class="pagevault-input pagevault-password" placeholder="Password" autocomplete="current-password">' +
+    '<button type="submit" class="pagevault-button">Decrypt</button>' +
+    '<div class="pagevault-error" style="display: none;"></div>' +
+    '</form></div>';
 
-  const form = el.querySelector('form');
-  const pwdInput = el.querySelector('.pagevault-password');
-  const userInput = el.querySelector('input[placeholder="Username"]');
-  const errorDiv = el.querySelector('.pagevault-error');
-  const button = el.querySelector('button');
+  var form = el.querySelector('form');
+  var pwdInput = el.querySelector('.pagevault-password');
+  var userInput = el.querySelector('input[placeholder="Username"]');
+  var errorDiv = el.querySelector('.pagevault-error');
+  var button = el.querySelector('button');
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async function(e) {{
     e.preventDefault();
-    const password = pwdInput.value;
+    var password = pwdInput.value;
     if (!password) return;
-    const username = userInput ? userInput.value : null;
+    var username = userInput ? userInput.value : null;
 
     button.disabled = true;
     button.textContent = 'Decrypting...';
 
-    const encrypted = el.getAttribute('data-encrypted');
-    const expectedHash = el.getAttribute('data-content-hash');
+    var encrypted = el.getAttribute('data-encrypted');
+    var expectedHash = el.getAttribute('data-content-hash');
 
-    const result = await window.__pagevault.decryptPayload(encrypted, password, username);
-    if (!result) {
+    var result = await window.__pagevault.decryptPayload(encrypted, password, username);
+    if (!result) {{
       errorDiv.textContent = 'Wrong password';
       errorDiv.style.display = 'block';
       button.disabled = false;
@@ -725,181 +717,113 @@ def _get_renderer_js() -> str:
       pwdInput.value = '';
       pwdInput.focus();
       return;
-    }
+    }}
 
-    // Verify hash
-    if (expectedHash) {
-      const actualHash = await window.__pagevault.computeHash(result.content);
-      if (actualHash !== expectedHash) {
+    // Strip null-byte padding (from --pad option during lock)
+    result.content = result.content.replace(/\0+$/, '');
+
+    if (expectedHash) {{
+      var actualHash = await window.__pagevault.computeHash(result.content);
+      if (actualHash !== expectedHash) {{
         errorDiv.textContent = 'Content integrity check failed';
         errorDiv.style.display = 'block';
         button.disabled = false;
         button.textContent = 'Decrypt';
         return;
-      }
-    }
+      }}
+    }}
 
-    // Decode base64 content to binary
-    const binaryStr = atob(result.content);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
+    var binaryStr = atob(result.content);
+    var bytes = new Uint8Array(binaryStr.length);
+    for (var i = 0; i < binaryStr.length; i++) {{
       bytes[i] = binaryStr.charCodeAt(i);
-    }
+    }}
 
-    const meta = result.meta || {};
+    var meta = result.meta || {{}};
     el.setAttribute('data-decrypted', 'true');
     el.removeAttribute('data-encrypted');
 
-    if (wrapType === 'site' && window.__pagevault_renderSite) {
+    if (wrapType === 'site' && window.__pagevault_renderSite) {{
       window.__pagevault_renderSite(el, bytes, meta);
-    } else {
-      renderFile(el, bytes, meta);
-    }
-  });
+    }} else {{
+      await renderFile(el, bytes, meta);
+    }}
+  }});
 
-  setTimeout(() => pwdInput.focus(), 100);
+  setTimeout(function() {{ pwdInput.focus(); }}, 100);
 
-  function escapeHtml(str) {
+  function escapeHtml(str) {{
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
+  }}
 
-  function formatSize(bytes) {
+  function formatSize(bytes) {{
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
-  }
+  }}
 
-  function createToolbar(fname, size, downloadUrl) {
-    const toolbar = document.createElement('div');
+  function createToolbar(fname, size, downloadUrl) {{
+    var toolbar = document.createElement('div');
     toolbar.className = 'pagevault-toolbar';
+    // downloadUrl is from URL.createObjectURL (blob: URL), fname is escapeHtml'd
     toolbar.innerHTML =
       '<span class="toolbar-filename">' + escapeHtml(fname) + '</span>' +
       '<span class="toolbar-size">' + formatSize(size) + '</span>' +
       '<a class="toolbar-btn" href="' + downloadUrl + '" download="' + escapeHtml(fname) + '">Download</a>';
     return toolbar;
-  }
+  }}
 
-  function renderImageViewer(viewer, url, fname) {
-    viewer.className = 'pagevault-viewer pagevault-image-viewer';
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = fname;
-    img.addEventListener('click', function() { img.classList.toggle('zoomed'); });
-    viewer.appendChild(img);
-  }
-
-  function renderPdfViewer(viewer, url) {
-    viewer.innerHTML = '<iframe src="' + url + '"></iframe>';
-  }
-
-  function renderMarkdownViewer(viewer, text, toolbar) {
-    var rendered;
-    if (typeof marked !== 'undefined' && marked.parse) {
-      rendered = marked.parse(text);
-    } else {
-      rendered = simpleMarkdown(text);
-    }
-
-    var body = document.createElement('div');
-    body.className = 'markdown-body';
-    body.innerHTML = rendered;
-
-    var source = document.createElement('div');
-    source.className = 'markdown-source';
-    source.style.display = 'none';
-    var pre = document.createElement('pre');
-    pre.textContent = text;
-    source.appendChild(pre);
-
-    viewer.appendChild(body);
-    viewer.appendChild(source);
-
-    // Add toggle button to toolbar
-    var toggleBtn = document.createElement('button');
-    toggleBtn.className = 'toolbar-btn toolbar-toggle';
-    toggleBtn.textContent = 'Source';
-    toggleBtn.addEventListener('click', function() {
-      var showSource = body.style.display !== 'none';
-      body.style.display = showSource ? 'none' : '';
-      source.style.display = showSource ? '' : 'none';
-      toggleBtn.textContent = showSource ? 'Rendered' : 'Source';
-      toggleBtn.classList.toggle('active', showSource);
-    });
-    toolbar.appendChild(toggleBtn);
-  }
-
-  function renderTextViewer(viewer, text) {
-    viewer.className = 'pagevault-viewer pagevault-text-viewer';
-    var lines = text.split('\\n');
-    var gutter = document.createElement('div');
-    gutter.className = 'line-numbers';
-    for (var i = 1; i <= lines.length; i++) {
-      var num = document.createElement('div');
-      num.textContent = i;
-      gutter.appendChild(num);
-    }
-    var pre = document.createElement('pre');
-    pre.textContent = text;
-    viewer.appendChild(gutter);
-    viewer.appendChild(pre);
-  }
-
-  function renderDownloadView(viewer, url, fname, size) {
+  // Download fallback — used when no viewer matches the MIME type.
+  // All interpolated values are sanitized: fname via escapeHtml(), size via formatSize(),
+  // url via URL.createObjectURL() which produces safe blob: URLs.
+  function renderDownloadView(viewer, url, fname, size) {{
     viewer.innerHTML =
       '<div class="pagevault-download">' +
-        '<div class="pagevault-icon">📄</div>' +
+        '<div class="pagevault-icon">\\u{{1F4C4}}</div>' +
         '<a href="' + url + '" download="' + escapeHtml(fname) + '">Download ' + escapeHtml(fname) + '</a>' +
         '<div class="file-info">' + formatSize(size) + '</div>' +
       '</div>';
-  }
+  }}
 
-  function renderFile(container, bytes, meta) {
-    const mime = meta.mime || 'application/octet-stream';
-    const fname = meta.filename || 'download';
-    const size = meta.size || bytes.length;
-    const blob = new Blob([bytes], { type: mime });
-    const url = URL.createObjectURL(blob);
+  // --- Viewer plugins (injected from ViewerPlugin.js()) ---
 
-    const toolbar = createToolbar(fname, size, url);
-    const viewer = document.createElement('div');
+{viewer_defs}
+
+  // Dispatch table: MIME type/pattern -> viewer function
+  var __pv_viewers = {{
+{dispatch_table}
+  }};
+
+  function __pv_resolveViewer(mime) {{
+    if (__pv_viewers[mime]) return __pv_viewers[mime];
+    var prefix = mime.split('/')[0] + '/*';
+    if (__pv_viewers[prefix]) return __pv_viewers[prefix];
+    return null;
+  }}
+
+  async function renderFile(container, bytes, meta) {{
+    var mime = meta.mime || 'application/octet-stream';
+    var fname = meta.filename || 'download';
+    var size = meta.size || bytes.length;
+    var blob = new Blob([bytes], {{ type: mime }});
+    var url = URL.createObjectURL(blob);
+
+    var toolbar = createToolbar(fname, size, url);
+    var viewer = document.createElement('div');
     viewer.className = 'pagevault-viewer';
 
-    if (mime.startsWith('image/')) {
-      renderImageViewer(viewer, url, fname);
-    } else if (mime === 'application/pdf') {
-      renderPdfViewer(viewer, url);
-    } else if (mime === 'text/html') {
-      viewer.innerHTML = '<iframe src="' + url + '"></iframe>';
-    } else if (mime === 'text/markdown') {
-      const text = new TextDecoder().decode(bytes);
-      renderMarkdownViewer(viewer, text, toolbar);
-    } else if (mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml') {
-      const text = new TextDecoder().decode(bytes);
-      renderTextViewer(viewer, text);
-    } else {
+    var renderFn = __pv_resolveViewer(mime);
+    if (renderFn) {{
+      await renderFn(viewer, blob, url, meta, toolbar);
+    }} else {{
       renderDownloadView(viewer, url, fname, size);
-    }
+    }}
 
     container.innerHTML = '';
     container.appendChild(toolbar);
     container.appendChild(viewer);
-  }
-
-  function simpleMarkdown(text) {
-    // Minimal markdown renderer — fallback when marked.js is not available
-    let html = text
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-      .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
-      .replace(/\\*(.+?)\\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/^- (.+)$/gm, '<li>$1</li>')
-      .replace(/\\n\\n/g, '</p><p>');
-    return '<p>' + html + '</p>';
-  }
-})();"""
+  }}
+}})();"""
 
 
 def _get_jszip_shim() -> str:

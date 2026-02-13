@@ -148,11 +148,12 @@ class TestBrowserFeatures:
         assert "getStoredCredentials" in encrypted
 
     def test_url_fragment_handling(self):
-        """Test JS includes URL fragment handling."""
+        """Test JS includes logout fragment handling (pwd removed for security)."""
         html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
-        assert "pagevault_pwd" in encrypted
+        # URL password feature removed — only logout remains
+        assert "pagevault_pwd" not in encrypted
         assert "pagevault_logout" in encrypted
         assert "location.hash" in encrypted
 
@@ -499,7 +500,7 @@ class TestBodyWrapWorkflow:
     """Tests for default body wrapping workflow."""
 
     def test_body_wrap_roundtrip(self):
-        """Test HTML without pagevault elements: encrypt wraps body, decrypt restores."""
+        """Test body-wrap roundtrip: encrypt wraps body, decrypt restores."""
 
         html = """<!DOCTYPE html>
 <html>
@@ -523,3 +524,44 @@ class TestBodyWrapWorkflow:
         decrypted = unlock_html(encrypted, "password")
         assert "Welcome" in decrypted
         assert "public-looking content" in decrypted
+
+
+class TestPadRoundtrip:
+    """Tests for content padding roundtrip (lock with --pad, then unlock)."""
+
+    def test_pad_lock_unlock_roundtrip(self):
+        """Test lock with pad=True can be unlocked and content is intact."""
+        html = """<pagevault hint="padded">
+<p>Secret padded content</p>
+</pagevault>"""
+
+        encrypted = lock_html(html, "password", pad=True)
+        assert "Secret padded content" not in encrypted
+
+        decrypted = unlock_html(encrypted, "password")
+        assert "Secret padded content" in decrypted
+
+    def test_pad_preserves_hash_integrity(self):
+        """Test content hash verification passes after pad+unpad."""
+        html = """<pagevault>
+<p>Hash test content</p>
+</pagevault>"""
+
+        encrypted = lock_html(html, "password", pad=True)
+
+        # Should not raise PagevaultError about hash mismatch
+        decrypted = unlock_html(encrypted, "password")
+        assert "Hash test content" in decrypted
+
+    def test_pad_with_multiuser(self):
+        """Test padding works with multi-user encryption."""
+        html = """<pagevault>
+<p>Multi-user padded</p>
+</pagevault>"""
+
+        users = {"alice": "pw-alice", "bob": "pw-bob"}
+        encrypted = lock_html(html, users=users, pad=True)
+
+        for username, password in users.items():
+            decrypted = unlock_html(encrypted, password, username=username)
+            assert "Multi-user padded" in decrypted

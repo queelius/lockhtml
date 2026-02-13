@@ -43,6 +43,20 @@ htmlcov/
 .lockhtml.yaml
 encrypted/
 decrypted/
+_locked/
+_unlocked/
+
+# Generated example outputs
+examples/_locked/
+examples/conversations/
+examples/conversations.html
+examples/public/
+examples/public.html
+examples/simple-site/
+examples/simple-site.html
+examples/site/
+examples/test/
+examples/test2/
 
 # OS
 .DS_Store
