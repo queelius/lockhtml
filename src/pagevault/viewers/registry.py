@@ -1,9 +1,16 @@
-"""Viewer plugin discovery and resolution."""
+"""Viewer plugin discovery and resolution.
+
+Discovery scans directories for .py files containing ViewerPlugin subclasses.
+Built-in viewers ship in ``viewers/builtins/``. Users can add custom viewers
+by placing .py files in a directory specified by ``viewers_dir`` in config.
+"""
 
 from __future__ import annotations
 
-import importlib.metadata
+import importlib.util
+import inspect
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .base import ViewerPlugin
@@ -13,14 +20,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Path to the built-in viewers directory (ships with pagevault)
+_BUILTINS_DIR = Path(__file__).parent / "builtins"
+
 
 def discover_viewers(config: PagevaultConfig | None = None) -> list[ViewerPlugin]:
     """Discover all available viewer plugins.
 
-    Loads viewers from entry points (group="pagevault.viewers"),
-    with a fallback to direct import for uninstalled development mode.
-    Deduplicates by name (highest priority wins), then filters by
-    config's ``viewers:`` section.
+    Loads built-in viewers from ``viewers/builtins/``, then scans the
+    user's ``viewers_dir`` (if configured). User viewers override builtins
+    on name collision (even at equal priority). Deduplicates by name,
+    then filters by config's ``viewers:`` section.
 
     Args:
         config: Optional configuration with viewers overrides.
@@ -28,12 +38,17 @@ def discover_viewers(config: PagevaultConfig | None = None) -> list[ViewerPlugin
     Returns:
         List of active ViewerPlugin instances.
     """
-    viewers = _load_from_entry_points()
+    # Built-ins first
+    viewers = scan_directory(_BUILTINS_DIR)
 
-    # Fallback: if entry points aren't registered (e.g. running tests
-    # without pip install), load built-ins directly.
-    if not viewers:
-        viewers = _load_builtins()
+    # User directory overrides builtins
+    if config is not None and getattr(config, "viewers_dir", None) is not None:
+        user_dir = Path(config.viewers_dir)
+        if user_dir.is_dir():
+            user_viewers = scan_directory(user_dir)
+            viewers.extend(user_viewers)
+        else:
+            logger.warning("viewers_dir does not exist: %s", user_dir)
 
     viewers = _deduplicate_by_name(viewers)
 
@@ -93,12 +108,55 @@ def filter_by_config(
     return [v for v in viewers if viewer_config.get(v.name, True)]
 
 
-def _deduplicate_by_name(viewers: list[ViewerPlugin]) -> list[ViewerPlugin]:
-    """Deduplicate viewers by name, keeping the highest priority for each.
+def scan_directory(directory: Path) -> list[ViewerPlugin]:
+    """Scan a directory for .py files containing ViewerPlugin subclasses.
 
-    When a third-party plugin registers with the same name as a built-in
-    (e.g. both define ``name = "image"``), only the highest-priority one
-    is kept. Ties are broken by order (first seen wins).
+    Each .py file is imported as a module and inspected for concrete
+    ViewerPlugin subclasses. Files starting with ``_`` are skipped.
+
+    Args:
+        directory: Path to directory to scan.
+
+    Returns:
+        List of ViewerPlugin instances found.
+    """
+    viewers: list[ViewerPlugin] = []
+    if not directory.is_dir():
+        return viewers
+
+    for py_file in sorted(directory.glob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+
+        try:
+            module = _import_file(py_file)
+        except Exception:
+            logger.warning("Failed to import viewer file: %s", py_file)
+            continue
+
+        for _name, obj in inspect.getmembers(module, inspect.isclass):
+            if (
+                issubclass(obj, ViewerPlugin)
+                and obj is not ViewerPlugin
+                and not getattr(obj, "__abstractmethods__", None)
+            ):
+                try:
+                    viewers.append(obj())
+                except Exception:
+                    logger.warning(
+                        "Failed to instantiate viewer %s from %s",
+                        obj.__name__,
+                        py_file,
+                    )
+
+    return viewers
+
+
+def _deduplicate_by_name(viewers: list[ViewerPlugin]) -> list[ViewerPlugin]:
+    """Deduplicate viewers by name, keeping the best for each.
+
+    When two viewers share a name, the higher priority wins. On equal
+    priority, the later one wins (so user viewers override builtins).
 
     Args:
         viewers: List of discovered viewers (may contain duplicates).
@@ -111,18 +169,19 @@ def _deduplicate_by_name(viewers: list[ViewerPlugin]) -> list[ViewerPlugin]:
         existing = best.get(v.name)
         if existing is None:
             best[v.name] = v
-        elif v.priority > existing.priority:
-            logger.warning(
-                "Viewer %r (priority %d) overrides %r (priority %d)",
-                type(v).__name__,
-                v.priority,
-                type(existing).__name__,
-                existing.priority,
-            )
+        elif v.priority >= existing.priority:
+            if v.priority > existing.priority:
+                logger.warning(
+                    "Viewer %r (priority %d) overrides %r (priority %d)",
+                    type(v).__name__,
+                    v.priority,
+                    type(existing).__name__,
+                    existing.priority,
+                )
             best[v.name] = v
-        elif v is not existing:
+        else:
             logger.debug(
-                "Ignoring duplicate viewer %r (priority %d <= %d)",
+                "Ignoring duplicate viewer %r (priority %d < %d)",
                 v.name,
                 v.priority,
                 existing.priority,
@@ -130,32 +189,16 @@ def _deduplicate_by_name(viewers: list[ViewerPlugin]) -> list[ViewerPlugin]:
     return list(best.values())
 
 
-def _load_from_entry_points() -> list[ViewerPlugin]:
-    """Load viewer plugins from entry points."""
-    viewers: list[ViewerPlugin] = []
-    for ep in importlib.metadata.entry_points(group="pagevault.viewers"):
-        try:
-            cls = ep.load()
-            viewers.append(cls())
-        except Exception:
-            logger.warning("Failed to load viewer plugin: %s", ep.name)
-    return viewers
+def _import_file(path: Path):
+    """Import a Python file as a module.
 
-
-def _load_builtins() -> list[ViewerPlugin]:
-    """Load built-in viewers directly (fallback when entry points unavailable)."""
-    from .builtin import (
-        HtmlViewer,
-        ImageViewer,
-        MarkdownViewer,
-        PdfViewer,
-        TextViewer,
-    )
-
-    return [
-        ImageViewer(),
-        PdfViewer(),
-        HtmlViewer(),
-        TextViewer(),
-        MarkdownViewer(),
-    ]
+    Uses importlib.util to load a .py file without requiring it to be
+    on sys.path or part of a package.
+    """
+    module_name = f"pagevault_viewer_{path.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot create module spec for {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

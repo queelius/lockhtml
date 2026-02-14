@@ -666,7 +666,7 @@ class TestImageViewer:
 
     def test_image_zoom_css(self):
         """ImageViewer plugin CSS should contain zoom styles."""
-        from pagevault.viewers.builtin import ImageViewer
+        from pagevault.viewers.builtins.image import ImageViewer
 
         css = ImageViewer().css()
         assert ".pagevault-image-viewer" in css
@@ -687,7 +687,7 @@ class TestTextViewer:
 
     def test_line_numbers_css(self):
         """TextViewer plugin CSS should contain line-number gutter styles."""
-        from pagevault.viewers.builtin import TextViewer
+        from pagevault.viewers.builtins.text import TextViewer
 
         css = TextViewer().css()
         assert ".line-numbers" in css

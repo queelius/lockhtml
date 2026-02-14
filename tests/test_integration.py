@@ -120,9 +120,9 @@ class TestHtmlOutput:
         html = "<pagevault>Secret</pagevault>"
         encrypted = lock_html(html, "password")
 
-        # Web Component registration
-        assert "customElements.define" in encrypted
-        assert "'pagevault'" in encrypted
+        # Handler initialization
+        assert "PagevaultHandler" in encrypted
+        assert "querySelectorAll" in encrypted
 
         # Key WebCrypto functions
         assert "crypto.subtle" in encrypted

@@ -41,13 +41,6 @@ dev = [
     "ruff>=0.1",
 ]
 
-[project.entry-points."pagevault.viewers"]
-image = "pagevault.viewers.builtin:ImageViewer"
-pdf = "pagevault.viewers.builtin:PdfViewer"
-html = "pagevault.viewers.builtin:HtmlViewer"
-text = "pagevault.viewers.builtin:TextViewer"
-markdown = "pagevault.viewers.builtin:MarkdownViewer"
-
 [project.scripts]
 pagevault = "pagevault.cli:main"
 
@@ -70,10 +63,10 @@ target-version = "py310"
 select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.per-file-ignores]
-# parser.py, wrap.py, and builtin.py contain inline JS/CSS that can't be line-wrapped
+# parser.py, wrap.py, and markdown.py contain inline JS/CSS that can't be line-wrapped
 "src/pagevault/parser.py" = ["E501"]
 "src/pagevault/wrap.py" = ["E501"]
-"src/pagevault/viewers/builtin.py" = ["E501"]
+"src/pagevault/viewers/builtins/markdown.py" = ["E501"]
 
 [tool.coverage.run]
 source = ["src/pagevault"]

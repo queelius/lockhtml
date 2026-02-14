@@ -309,7 +309,7 @@ class TestLockHtml:
         result = lock_html(html, "password")
 
         assert "data-pagevault-runtime" in result
-        assert "customElements.define" in result
+        assert "PagevaultHandler" in result
         assert ".pagevault-container" in result
 
     def test_no_elements_returns_unchanged(self):
@@ -767,7 +767,7 @@ class TestPerElementTitle:
         result = lock_html(html, "password")
 
         # JS should read data-title attribute
-        assert "this.getAttribute('data-title')" in result
+        assert "el.getAttribute('data-title')" in result
 
 
 class TestMarkBody:

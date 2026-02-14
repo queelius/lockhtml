@@ -40,9 +40,9 @@ class TestGenerateJavascript:
         assert isinstance(js, str)
         assert len(js) > 0
 
-    def test_contains_web_component(self):
+    def test_contains_handler_class(self):
         js = generate_javascript()
-        assert "customElements" in js
+        assert "PagevaultHandler" in js
 
     def test_contains_default_texts(self):
         js = generate_javascript()

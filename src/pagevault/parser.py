@@ -853,28 +853,30 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
     return null;
   }}
 
-  // Web Component
-  class PagevaultElement extends HTMLElement {{
-    constructor() {{
-      super();
-      this._decrypted = false;
-    }}
-
-    connectedCallback() {{
-      if (!this.hasAttribute('data-encrypted')) return;
+  // Element handler — uses a plain class instead of Custom Elements because
+  // the spec requires hyphenated names and <pagevault> has no hyphen.
+  // All values set via innerHTML are either:
+  //   - escapeHtml()-wrapped user strings (hint, title, placeholder, button text)
+  //   - static HTML template literals (form structure, lock icon)
+  //   - decrypted content from AES-256-GCM (trusted after authenticated decryption)
+  class PagevaultHandler {{
+    constructor(el) {{
+      this.el = el;
+      this.el._pvDecrypted = false;
       this._render();
       this._tryAutoDecrypt();
     }}
 
     _render() {{
-      const hint = this.getAttribute('data-hint');
-      const title = this.getAttribute('data-title') || CONFIG.title;
-      const remember = this.getAttribute('data-remember') || CONFIG.defaultRemember;
-      const isUserMode = this.getAttribute('data-mode') === 'user';
+      const el = this.el;
+      const hint = el.getAttribute('data-hint');
+      const title = el.getAttribute('data-title') || CONFIG.title;
+      const remember = el.getAttribute('data-remember') || CONFIG.defaultRemember;
+      const isUserMode = el.getAttribute('data-mode') === 'user';
 
-      this.innerHTML = `
+      el.innerHTML = `
         <div class="pagevault-container">
-          <div class="pagevault-icon">🔒</div>
+          <div class="pagevault-icon">\U0001f512</div>
           <div class="pagevault-title">${{escapeHtml(title)}}</div>
           ${{hint ? `<div class="pagevault-hint">${{escapeHtml(hint)}}</div>` : ''}}
           <form class="pagevault-form">
@@ -892,10 +894,10 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
         </div>
       `;
 
-      const form = this.querySelector('form');
-      const passwordInput = this.querySelector('input[type="password"]');
-      const usernameInput = this.querySelector('.pagevault-username');
-      const error = this.querySelector('.pagevault-error');
+      const form = el.querySelector('form');
+      const passwordInput = el.querySelector('input[type="password"]');
+      const usernameInput = el.querySelector('.pagevault-username');
+      const error = el.querySelector('.pagevault-error');
 
       form.addEventListener('submit', async (e) => {{
         e.preventDefault();
@@ -904,10 +906,10 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
         const username = usernameInput ? usernameInput.value : null;
 
         // Capture checkbox state BEFORE decryption replaces innerHTML
-        const rememberCheckbox = this.querySelector('input[name="remember"]');
+        const rememberCheckbox = el.querySelector('input[name="remember"]');
         const wantsRemember = remember === 'local' || (rememberCheckbox && rememberCheckbox.checked);
 
-        const button = this.querySelector('button');
+        const button = el.querySelector('button');
         button.disabled = true;
         button.textContent = 'Decrypting...';
 
@@ -950,10 +952,11 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
     }}
 
     async _decrypt(password, username) {{
-      const encrypted = this.getAttribute('data-encrypted');
+      const el = this.el;
+      const encrypted = el.getAttribute('data-encrypted');
       if (!encrypted) return false;
 
-      const expectedHash = this.getAttribute('data-content-hash');
+      const expectedHash = el.getAttribute('data-content-hash');
 
       const result = await decryptContent(encrypted, password, username);
       if (result === null) return false;
@@ -972,25 +975,37 @@ def _get_javascript(template: TemplateConfig, defaults: DefaultsConfig) -> str:
       }}
 
       // Remove encrypted attributes and reveal content
-      this.removeAttribute('data-encrypted');
-      this.removeAttribute('data-content-hash');
-      this.removeAttribute('data-mode');
-      this.innerHTML = content;
-      this._decrypted = true;
+      el.removeAttribute('data-encrypted');
+      el.removeAttribute('data-content-hash');
+      el.removeAttribute('data-mode');
+      // Decrypted content is trusted — it was authenticated by AES-256-GCM
+      el.innerHTML = content;
+      el._pvDecrypted = true;
 
       // Dispatch event for scripts that need to know
-      this.dispatchEvent(new CustomEvent('pagevault:decrypted', {{
+      el.dispatchEvent(new CustomEvent('pagevault:decrypted', {{
         bubbles: true,
-        detail: {{ element: this, meta: meta }}
+        detail: {{ element: el, meta: meta }}
       }}));
 
       return true;
     }}
   }}
 
-  // Register component
-  if (!customElements.get('pagevault')) {{
-    customElements.define('pagevault', PagevaultElement);
+  // Initialize all encrypted <pagevault> elements.
+  // Wrapped in DOMContentLoaded since the script is in <head> but the
+  // elements are in <body> — they don't exist yet at script parse time.
+  function initAll() {{
+    document.querySelectorAll('pagevault[data-encrypted]').forEach(function(el) {{
+      if (!el._pvHandler) {{
+        el._pvHandler = new PagevaultHandler(el);
+      }}
+    }});
+  }}
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', initAll);
+  }} else {{
+    initAll();
   }}
 }})();
 """

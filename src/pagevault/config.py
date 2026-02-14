@@ -53,6 +53,7 @@ class PagevaultConfig:
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     template: TemplateConfig = field(default_factory=TemplateConfig)
     viewers: dict[str, bool] | None = None  # Viewer overrides {name: enabled}
+    viewers_dir: Path | None = None  # Directory with custom viewer .py files
     custom_css: str | None = None  # Custom CSS content (replaces default styles)
     config_path: Path | None = None  # Path where config was loaded from
 
@@ -268,6 +269,14 @@ def _load_config_file(config_path: Path) -> PagevaultConfig:
     if "viewers" in data and isinstance(data["viewers"], dict):
         config.viewers = {str(k): bool(v) for k, v in data["viewers"].items()}
 
+    # Load custom viewers directory
+    if "viewers_dir" in data:
+        viewers_dir_path = Path(data["viewers_dir"])
+        # Resolve relative paths against config file directory
+        if not viewers_dir_path.is_absolute():
+            viewers_dir_path = config_path.parent / viewers_dir_path
+        config.viewers_dir = viewers_dir_path
+
     # Load custom CSS from file
     if "css_file" in data:
         css_file_path = Path(data["css_file"])
@@ -427,5 +436,6 @@ def config_to_dict(config: PagevaultConfig) -> dict[str, Any]:
         "color_secondary": config.template.color_secondary,
     }
     result["viewers"] = config.viewers
+    result["viewers_dir"] = str(config.viewers_dir) if config.viewers_dir else None
     result["config_path"] = str(config.config_path) if config.config_path else None
     return result

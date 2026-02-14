@@ -1,7 +1,5 @@
 """Tests for pagevault.viewers package."""
 
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from pagevault.config import PagevaultConfig
@@ -10,17 +8,18 @@ from pagevault.viewers import (
     discover_viewers,
     filter_by_config,
     resolve_viewer,
+    scan_directory,
 )
-from pagevault.viewers.builtin import (
-    HtmlViewer,
-    ImageViewer,
-    MarkdownViewer,
-    PdfViewer,
-    TextViewer,
-)
+from pagevault.viewers.builtins.audio import AudioViewer
+from pagevault.viewers.builtins.html import HtmlViewer
+from pagevault.viewers.builtins.image import ImageViewer
+from pagevault.viewers.builtins.markdown import MarkdownViewer
+from pagevault.viewers.builtins.pdf import PdfViewer
+from pagevault.viewers.builtins.text import TextViewer
+from pagevault.viewers.builtins.video import VideoViewer
 from pagevault.viewers.registry import (
+    _BUILTINS_DIR,
     _deduplicate_by_name,
-    _load_builtins,
 )
 
 
@@ -98,10 +97,10 @@ class TestDiscoverViewers:
     """Tests for viewer discovery."""
 
     def test_discovers_builtin_viewers(self):
-        """discover_viewers() returns all 5 built-in viewers."""
+        """discover_viewers() returns all 7 built-in viewers."""
         viewers = discover_viewers()
         names = {v.name for v in viewers}
-        assert names >= {"image", "pdf", "html", "text", "markdown"}
+        assert names >= {"image", "pdf", "html", "text", "markdown", "audio", "video"}
 
     def test_discover_returns_viewer_instances(self):
         """All discovered viewers are ViewerPlugin instances."""
@@ -109,12 +108,12 @@ class TestDiscoverViewers:
         for v in viewers:
             assert isinstance(v, ViewerPlugin)
 
-    def test_load_builtins_fallback(self):
-        """_load_builtins() returns the 5 built-in viewers."""
-        viewers = _load_builtins()
-        assert len(viewers) == 5
+    def test_scan_builtins_dir(self):
+        """scan_directory() finds all 7 built-in viewers."""
+        viewers = scan_directory(_BUILTINS_DIR)
+        assert len(viewers) == 7
         names = {v.name for v in viewers}
-        assert names == {"image", "pdf", "html", "text", "markdown"}
+        assert names == {"image", "pdf", "html", "text", "markdown", "audio", "video"}
 
 
 class TestResolveViewer:
@@ -122,7 +121,7 @@ class TestResolveViewer:
 
     @pytest.fixture
     def viewers(self):
-        return _load_builtins()
+        return scan_directory(_BUILTINS_DIR)
 
     def test_exact_match_image_png(self, viewers):
         """image/png should match ImageViewer via image/* wildcard."""
@@ -171,10 +170,17 @@ class TestResolveViewer:
         v = resolve_viewer("application/octet-stream", viewers)
         assert v is None
 
-    def test_no_match_video(self, viewers):
-        """video/mp4 should return None (no video viewer)."""
+    def test_match_video(self, viewers):
+        """video/mp4 should match VideoViewer via video/* wildcard."""
         v = resolve_viewer("video/mp4", viewers)
-        assert v is None
+        assert v is not None
+        assert v.name == "video"
+
+    def test_match_audio(self, viewers):
+        """audio/mpeg should match AudioViewer via audio/* wildcard."""
+        v = resolve_viewer("audio/mpeg", viewers)
+        assert v is not None
+        assert v.name == "audio"
 
     def test_wildcard_match_image_svg(self, viewers):
         """image/svg+xml should match ImageViewer via image/* wildcard."""
@@ -225,7 +231,7 @@ class TestFilterByConfig:
 
     def test_no_config_viewers_returns_all(self):
         """When config.viewers is None, all viewers pass."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig()
         assert config.viewers is None
         result = filter_by_config(viewers, config)
@@ -233,7 +239,7 @@ class TestFilterByConfig:
 
     def test_disable_markdown(self):
         """Disabling markdown viewer removes it."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig(viewers={"markdown": False})
         result = filter_by_config(viewers, config)
         names = {v.name for v in result}
@@ -242,7 +248,7 @@ class TestFilterByConfig:
 
     def test_disable_multiple(self):
         """Disabling multiple viewers removes them."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig(viewers={"markdown": False, "image": False})
         result = filter_by_config(viewers, config)
         names = {v.name for v in result}
@@ -252,7 +258,7 @@ class TestFilterByConfig:
 
     def test_explicit_enable(self):
         """Explicitly enabling a viewer keeps it."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig(viewers={"markdown": True})
         result = filter_by_config(viewers, config)
         names = {v.name for v in result}
@@ -260,7 +266,7 @@ class TestFilterByConfig:
 
     def test_unknown_viewer_in_config_ignored(self):
         """Config mentioning unknown viewer names doesn't affect anything."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig(viewers={"nonexistent": False})
         result = filter_by_config(viewers, config)
         assert len(result) == len(viewers)
@@ -395,6 +401,60 @@ class TestMarkdownViewerPlugin:
         """Vendored marked.js should contain MIT license header."""
         deps = MarkdownViewer().dependencies()
         assert "MIT" in deps[0]
+
+
+class TestAudioViewer:
+    """Tests for the AudioViewer plugin."""
+
+    def test_js_returns_async_function(self):
+        js = AudioViewer().js()
+        assert js.startswith("async function(")
+        assert "container" in js
+
+    def test_js_creates_audio_element(self):
+        js = AudioViewer().js()
+        assert "'audio'" in js or '"audio"' in js
+        assert "controls" in js
+
+    def test_css_has_audio_styles(self):
+        css = AudioViewer().css()
+        assert ".pagevault-audio-viewer" in css
+
+    def test_no_dependencies(self):
+        assert AudioViewer().dependencies() == []
+
+    def test_mime_types(self):
+        assert AudioViewer().mime_types == ["audio/*"]
+
+    def test_name(self):
+        assert AudioViewer().name == "audio"
+
+
+class TestVideoViewer:
+    """Tests for the VideoViewer plugin."""
+
+    def test_js_returns_async_function(self):
+        js = VideoViewer().js()
+        assert js.startswith("async function(")
+        assert "container" in js
+
+    def test_js_creates_video_element(self):
+        js = VideoViewer().js()
+        assert "'video'" in js or '"video"' in js
+        assert "controls" in js
+
+    def test_css_has_video_styles(self):
+        css = VideoViewer().css()
+        assert ".pagevault-video-viewer" in css
+
+    def test_no_dependencies(self):
+        assert VideoViewer().dependencies() == []
+
+    def test_mime_types(self):
+        assert VideoViewer().mime_types == ["video/*"]
+
+    def test_name(self):
+        assert VideoViewer().name == "video"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -692,7 +752,7 @@ class TestDeduplicateByName:
 
     def test_no_duplicates_unchanged(self):
         """List with unique names passes through unchanged."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         result = _deduplicate_by_name(viewers)
         assert len(result) == len(viewers)
 
@@ -725,8 +785,8 @@ class TestDeduplicateByName:
         assert len(result) == 1
         assert result[0].priority == 10
 
-    def test_first_wins_on_tie(self):
-        """When priorities are equal, first-seen is kept."""
+    def test_last_wins_on_tie(self):
+        """When priorities are equal, last-seen wins (user overrides builtin)."""
 
         class ImageA(ViewerPlugin):
             name = "image"
@@ -753,7 +813,7 @@ class TestDeduplicateByName:
         a, b = ImageA(), ImageB()
         result = _deduplicate_by_name([a, b])
         assert len(result) == 1
-        assert result[0] is a
+        assert result[0] is b
 
 
 class TestResolveViewerEdgeCases:
@@ -761,12 +821,12 @@ class TestResolveViewerEdgeCases:
 
     def test_empty_string_mime(self):
         """Empty MIME string returns None."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         assert resolve_viewer("", viewers) is None
 
     def test_no_slash_mime(self):
         """MIME string without slash returns None (prefix lookup uses split)."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         assert resolve_viewer("noslash", viewers) is None
 
     def test_empty_viewers_list(self):
@@ -779,33 +839,94 @@ class TestFilterByConfigEdgeCases:
 
     def test_empty_dict_passes_all(self):
         """An explicit empty viewers: {} passes all viewers through."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig(viewers={})
         result = filter_by_config(viewers, config)
         assert len(result) == len(viewers)
 
     def test_disable_all_viewers(self):
         """Disabling all viewers produces empty list."""
-        viewers = _load_builtins()
+        viewers = scan_directory(_BUILTINS_DIR)
         config = PagevaultConfig(viewers={v.name: False for v in viewers})
         result = filter_by_config(viewers, config)
         assert result == []
 
 
-class TestEntryPointFailure:
-    """Tests for entry point loading failure path."""
+class TestDirectoryScanning:
+    """Tests for directory-based viewer discovery."""
 
-    def test_failed_entry_point_is_logged(self):
-        """A failing entry point logs a warning and is skipped."""
-        from pagevault.viewers.registry import _load_from_entry_points
+    def test_scan_empty_dir(self, tmp_path):
+        """Scanning an empty directory returns no viewers."""
+        assert scan_directory(tmp_path) == []
 
-        bad_ep = MagicMock()
-        bad_ep.name = "broken_viewer"
-        bad_ep.load.side_effect = ImportError("no such module")
+    def test_scan_nonexistent_dir(self, tmp_path):
+        """Scanning a nonexistent directory returns no viewers."""
+        assert scan_directory(tmp_path / "nope") == []
 
-        ep_path = "pagevault.viewers.registry.importlib.metadata.entry_points"
-        with patch(ep_path) as mock_ep:
-            mock_ep.return_value = [bad_ep]
-            viewers = _load_from_entry_points()
+    def test_scan_skips_underscore_files(self, tmp_path):
+        """Files starting with _ are skipped (e.g. __init__.py)."""
+        (tmp_path / "__init__.py").write_text("x = 1\n")
+        (tmp_path / "_helpers.py").write_text("x = 2\n")
+        assert scan_directory(tmp_path) == []
 
+    def test_scan_finds_viewer_in_file(self, tmp_path):
+        """A .py file with a ViewerPlugin subclass is discovered."""
+        (tmp_path / "audio.py").write_text(
+            "from pagevault.viewers.base import ViewerPlugin\n"
+            "\n"
+            "class AudioViewer(ViewerPlugin):\n"
+            "    name = 'audio'\n"
+            "    mime_types = ['audio/*']\n"
+            "    def js(self): return 'async function(c,b,u,m,t) {}'\n"
+            "    def css(self): return ''\n"
+        )
+        viewers = scan_directory(tmp_path)
+        assert len(viewers) == 1
+        assert viewers[0].name == "audio"
+
+    def test_scan_ignores_bad_file(self, tmp_path):
+        """A .py file that fails to import is skipped with a warning."""
+        (tmp_path / "bad.py").write_text("raise ImportError('broken')\n")
+        viewers = scan_directory(tmp_path)
         assert viewers == []
+
+    def test_scan_ignores_non_viewer_classes(self, tmp_path):
+        """Classes that don't subclass ViewerPlugin are ignored."""
+        (tmp_path / "util.py").write_text("class NotAViewer:\n    pass\n")
+        assert scan_directory(tmp_path) == []
+
+    def test_user_viewer_overrides_builtin_on_equal_priority(self, tmp_path):
+        """User viewer with same name/priority overrides builtin."""
+        (tmp_path / "image.py").write_text(
+            "from pagevault.viewers.base import ViewerPlugin\n"
+            "\n"
+            "class CustomImage(ViewerPlugin):\n"
+            "    name = 'image'\n"
+            "    mime_types = ['image/*']\n"
+            "    priority = 0\n"
+            "    def js(self): return 'async function(c,b,u,m,t) { /* custom */ }'\n"
+            "    def css(self): return ''\n"
+        )
+        builtins = scan_directory(_BUILTINS_DIR)
+        user = scan_directory(tmp_path)
+        combined = builtins + user
+        deduped = _deduplicate_by_name(combined)
+        img = next(v for v in deduped if v.name == "image")
+        assert "custom" in img.js()
+
+    def test_discover_with_viewers_dir(self, tmp_path):
+        """discover_viewers() loads from viewers_dir in config."""
+        (tmp_path / "video.py").write_text(
+            "from pagevault.viewers.base import ViewerPlugin\n"
+            "\n"
+            "class VideoViewer(ViewerPlugin):\n"
+            "    name = 'video'\n"
+            "    mime_types = ['video/*']\n"
+            "    def js(self): return 'async function(c,b,u,m,t) {}'\n"
+            "    def css(self): return ''\n"
+        )
+        config = PagevaultConfig(viewers_dir=tmp_path)
+        viewers = discover_viewers(config)
+        names = {v.name for v in viewers}
+        assert "video" in names
+        assert "image" in names  # builtins still present
